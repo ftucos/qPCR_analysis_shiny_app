@@ -1,0 +1,10 @@
+name: qpcr_analysis
+title:
+username:
+account: tucos
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 1957656
+bundleId: 3401701
+url: https://tucos.shinyapps.io/qpcr_analysis/
+when: 1594936765.55611
