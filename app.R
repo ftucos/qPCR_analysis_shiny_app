@@ -14,11 +14,25 @@ library(rhandsontable)
 example_data <- data.frame(
     Sample = rep(c("Sample1", "Sample2", "Sample3"), each = 4 * 3),
     Target = rep(rep(c("HK1", "HK2", "TG1", "TG2"), each = 3), 3),
-    Cq     = round(rnorm(3 * 3 * 4, mean = 23.5, sd = 1.2), 2)
+    Cq     = round(rnorm(3 * 3 * 4, mean = 23.5, sd = 1.2), 2) |> as.character()
 )
 
-# helper function
+# helper functions ==========================================
 drop_empty <- function(x) {x[!is.na(x) & nzchar(trimws(x))]}
+
+parse_Cq <- function(x) {
+    x <- str_trim(as.character(x))
+    x <- case_when(
+        # undetermined or other non-numeric labels
+        str_detect(x, "[A-Za-z]{2,}")          ~ 999999,
+        # higher than
+        str_detect(x, ">")          ~ 999999,
+        # , as decimal mark
+        str_count(x, ",") == 1 & str_count(x, "\\.") == 0 ~ suppressWarnings(parse_number(x, locale = locale(decimal_mark = ","))),
+        TRUE                               ~ suppressWarnings(parse_number(x))
+    )
+}
+
 
 
 # =============================================================================
@@ -94,11 +108,20 @@ ui <- page_fillable(
                     fillable = TRUE,
                     card_header("qPCR Data Entry"),
                     rHandsontableOutput("raw_data", height = "90%"),
-                    actionButton(
-                        "load_example",
-                        "Load Example Data",
-                        width = "230px",
-                        class = "btn-outline-secondary btn-sm"
+                    div(
+                        style = "display: flex; gap: 10px;",
+                        actionButton(
+                            "load_example",
+                            "Load Example Data",
+                            width = "180px",
+                            class = "btn-outline-secondary btn-sm"
+                        ),
+                        actionButton(
+                            "validate_cq",
+                            "Validate Cq values",
+                            width = "180px",
+                            class = "btn-primary btn-sm"
+                        )
                     )
                 )
             )
@@ -189,6 +212,18 @@ server <- function(input, output, session) {
         }
         
         values$cached_raw_data <- data_to_load
+    })
+    
+    # -------------------------------------------------------------------------
+    # Observer: Validate Cq values
+    # -------------------------------------------------------------------------
+    
+    observeEvent(input$validate_cq, {
+        if (is.null(input$raw_data)) return()
+        current_data <- hot_to_r(input$raw_data)
+        # parse Cq data and convert them back into safely formatted characters to preserve table editability
+        current_data$Cq <- parse_Cq(current_data$Cq) |> as.character()
+        values$cached_raw_data <- current_data
     })
     
     # -------------------------------------------------------------------------
@@ -292,19 +327,20 @@ server <- function(input, output, session) {
 # -------------------------------------------------------------------------
 
 ct_processed <- reactive({
-    req(values$cached_raw_data)
+    req(hot_to_r(input$raw_data))
     req(nrow(hot_to_r(input$samples_tab)) > 0)
 
     samples_metadata <- hot_to_r(input$samples_tab)
 
-    values$cached_raw_data |>
+    hot_to_r(input$raw_data) |>
         inner_join(samples_df) |>
         filter(Include) |>
         # update and reorder sample name
         mutate(Sample = factor(New_Label,
                                levels = samples_df$New_Label)) |>
-        arrange(New_Label) |>
-        select(-New_Label, -Include)
+        select(-New_Label, -Include) |>
+        arrange(Sample) |>
+        mutate(Cq = parse_Cq(Cq))
 })
 
 
