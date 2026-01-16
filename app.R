@@ -133,8 +133,8 @@ server <- function(input, output, session) {
     # -------------------------------------------------------------------------
     
     values <- reactiveValues(
-        # Raw Cq data as entered by user
-        ct_raw_df = data.frame(
+        # cached raw data, required to add/remove replicate column
+        cached_raw_data = data.frame(
             Sample = character(5),
             Target = character(5),
             Cq     = character(5),
@@ -151,27 +151,7 @@ server <- function(input, output, session) {
             stringsAsFactors = FALSE
         )
     )
-  
-    # -------------------------------------------------------------------------
-    # Derived Reactive: Processed data (with renames, ordering, exclusions)
-    # -------------------------------------------------------------------------
-    
-    # ct_processed <- reactive({
-    #     req(values$ct_raw_df)
-    #     req(nrow(hot_to_r(input$samples_tab)) > 0)
-    #     
-    #     samples_df <- hot_to_r(input$samples_tab)
-    #     
-    #     values$ct_raw_df |>
-    #         inner_join(samples_df) |>
-    #         filter(Include) |>
-    #         # update and reorder sample name
-    #         mutate(Sample = factor(New_Label,
-    #                                levels = samples_df$New_Label)) |>
-    #         arrange(New_Label) |>
-    #         select(-New_Label, -Include)
-    # })
-    
+
     
     # -------------------------------------------------------------------------
     # Observer: Toggle biological replicates column
@@ -183,14 +163,14 @@ server <- function(input, output, session) {
         
         if (input$include_replicates) {
             if (!"Replicate" %in% names(current_data)) {
-                values$ct_raw_df <- cbind(
+                values$cached_raw_data <- cbind(
                     current_data,
                     Replicate = rep("R1", nrow(current_data))
                 )
             }
         } else {
             if ("Replicate" %in% names(current_data)) {
-                values$ct_raw_df <- current_data[
+                values$cached_raw_data <- current_data[
                     , !names(current_data) %in% "Replicate", drop = FALSE
                 ]
             }
@@ -208,7 +188,7 @@ server <- function(input, output, session) {
             data_to_load$Replicate <- rep("R1", nrow(data_to_load))
         }
         
-        values$ct_raw_df <- data_to_load
+        values$cached_raw_data <- data_to_load
     })
     
     # -------------------------------------------------------------------------
@@ -217,7 +197,7 @@ server <- function(input, output, session) {
     
     observeEvent(input$raw_data, {
         if (!is.null(input$raw_data)) {
-            values$ct_raw_df <- hot_to_r(input$raw_data)
+            values$cached_raw_data <- hot_to_r(input$raw_data)
         }
     })
     
@@ -227,10 +207,10 @@ server <- function(input, output, session) {
     # -------------------------------------------------------------------------
     
     output$raw_data <- renderRHandsontable({
-        req(values$ct_raw_df)
+        req(values$cached_raw_data)
         
         rhandsontable(
-            values$ct_raw_df,
+            values$cached_raw_data,
             rowHeaders = TRUE,
             readOnly = FALSE,
             contextMenu = TRUE,
@@ -305,6 +285,28 @@ server <- function(input, output, session) {
     })
 
 }
+
+
+# -------------------------------------------------------------------------
+# Derived Reactive: Processed data (with renames, ordering, exclusions)
+# -------------------------------------------------------------------------
+
+ct_processed <- reactive({
+    req(values$cached_raw_data)
+    req(nrow(hot_to_r(input$samples_tab)) > 0)
+
+    samples_metadata <- hot_to_r(input$samples_tab)
+
+    values$cached_raw_data |>
+        inner_join(samples_df) |>
+        filter(Include) |>
+        # update and reorder sample name
+        mutate(Sample = factor(New_Label,
+                               levels = samples_df$New_Label)) |>
+        arrange(New_Label) |>
+        select(-New_Label, -Include)
+})
+
 
 # =============================================================================
 # Run App
