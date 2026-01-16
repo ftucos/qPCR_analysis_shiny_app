@@ -223,9 +223,30 @@ server <- function(input, output, session) {
     observeEvent(input$validate_cq, {
         if (is.null(input$raw_data)) return()
         current_data <- hot_to_r(input$raw_data)
-        # parse Cq data and convert them back into safely formatted characters to preserve table editability
-        current_data$Cq <- parse_Cq(current_data$Cq) |> as.character()
+        
+        original_cq <- str_trim(as.character(current_data$Cq))
+        parsed_cq <- parse_Cq(current_data$Cq) |> as.character()
+        
+        # Find values that changed
+        changed_mask <- original_cq != parsed_cq & !is.na(original_cq) & nzchar(original_cq)
+        conversions <- unique(paste0(original_cq[changed_mask], " → ", parsed_cq[changed_mask]))
+        
+        # Update the data
+        current_data$Cq <- parsed_cq
         values$cached_raw_data <- current_data
+        
+        # Show warning modal if any conversions happened
+        if (length(conversions) > 0) {
+            showModal(modalDialog(
+                title = "Cq Values Converted",
+                tags$p("The following conversions were applied:"),
+                tags$ul(
+                    lapply(conversions, function(x) {tags$li(x)})
+                ),
+                easyClose = TRUE,
+                footer = modalButton("OK")
+            ))
+        }
     })
     
     # -------------------------------------------------------------------------
