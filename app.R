@@ -186,7 +186,6 @@ server <- function(input, output, session) {
         new_samples <- setdiff(current_samples, previous_samples)
         
         if (length(current_samples) == 0) {
-            print("initialize empty")
             # No valid samples, keep empty
             values$cached_samples_tab <- data.frame(
                 Sample    = character(),
@@ -194,35 +193,22 @@ server <- function(input, output, session) {
                 Include   = logical()
             )
         } else if (length(previous_samples) == 0) {
-            print("build it")
             # First time cached_samples_tab update
             values$cached_samples_tab <- data.frame(
                 Sample    = current_samples,
                 New_Label = current_samples,
                 Include   = rep(TRUE, times=length(current_samples))
-            )    
-        } else {
-            print("update it")
-            # update cached_samples_tab
-            values$cached_samples_tab <- values$cached_samples_tab |>
-                # remove deleted samples
-                filter(Sample %in% current_samples) |>
-                rbind(data.frame(
-                    Sample    = new_samples,
-                    New_Label = new_samples,
-                    Include   = rep(TRUE, times=length(new_samples))
-                    ))
-        }
-        
-        print(values$cached_samples_tab)
-    })
-    
-    # log the changes to the input$samples_tab
-    observeEvent(input$samples_tab, {
-        print("changing the rhandsome table:")
-        print(hot_to_r(input$samples_tab))
-        print("this is what was cached:")
-        print(values$cached_samples_tab)
+            )
+         } else {
+            values$cached_samples_tab <- data.frame(Sample = current_samples) |>
+                # reapply previous edits for existing samples
+                left_join(values$cached_samples_tab) |>
+                # fill in defaults for new samples
+                mutate(
+                    New_Label = ifelse(is.na(New_Label), Sample, New_Label),
+                    Include   = ifelse(is.na(Include), TRUE, Include)
+                )
+         }
     })
     
     # -------------------------------------------------------------------------
