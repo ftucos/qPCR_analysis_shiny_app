@@ -107,9 +107,11 @@ ui <- page_fillable(
                     full_screen = TRUE,
                     fillable = TRUE,
                     card_header("qPCR Data Entry"),
+                    helpText("Paste your qPCR data below directly from Excel"),
                     rHandsontableOutput("raw_data", height = "90%"),
                     div(
                         style = "display: flex; gap: 10px;",
+                        class = "justify-content-between",
                         actionButton(
                             "load_example",
                             "Load Example Data",
