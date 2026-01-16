@@ -24,12 +24,12 @@ parse_Cq <- function(x) {
     x <- str_trim(as.character(x))
     x <- case_when(
         # undetermined or other non-numeric labels
-        str_detect(x, "[A-Za-z]{2,}")          ~ 999999,
+        str_detect(x, "[A-Za-z]{2,}") ~ 999999,
         # higher than
-        str_detect(x, ">")          ~ 999999,
+        str_detect(x, ">") ~ 999999,
         # , as decimal mark
         str_count(x, ",") == 1 & str_count(x, "\\.") == 0 ~ suppressWarnings(parse_number(x, locale = locale(decimal_mark = ","))),
-        TRUE                               ~ suppressWarnings(parse_number(x))
+        TRUE ~ suppressWarnings(parse_number(x))
     )
 }
 
@@ -109,21 +109,11 @@ ui <- page_fillable(
                     card_header("qPCR Data Entry"),
                     helpText("Paste your qPCR data below directly from Excel"),
                     rHandsontableOutput("raw_data", height = "90%"),
-                    div(
-                        style = "display: flex; gap: 10px;",
-                        class = "justify-content-between",
-                        actionButton(
-                            "load_example",
-                            "Load Example Data",
-                            width = "180px",
-                            class = "btn-outline-secondary btn-sm"
-                        ),
-                        actionButton(
-                            "validate_cq",
-                            "Validate Cq values",
-                            width = "180px",
-                            class = "btn-primary btn-sm"
-                        )
+                    actionButton(
+                        "load_example",
+                        "Load Example Data",
+                        width = "180px",
+                        class = "btn-outline-secondary btn-sm"
                     )
                 )
             )
@@ -215,51 +205,7 @@ server <- function(input, output, session) {
         
         values$cached_raw_data <- data_to_load
     })
-    
-    # -------------------------------------------------------------------------
-    # Observer: Validate Cq values
-    # -------------------------------------------------------------------------
-    
-    observeEvent(input$validate_cq, {
-        if (is.null(input$raw_data)) return()
-        current_data <- hot_to_r(input$raw_data)
-        
-        original_cq <- str_trim(as.character(current_data$Cq))
-        parsed_cq <- parse_Cq(current_data$Cq) |> as.character()
-        
-        # Find values that changed
-        changed_mask <- original_cq != parsed_cq & !is.na(original_cq) & nzchar(original_cq)
-        conversions <- unique(paste0(original_cq[changed_mask], " → ", parsed_cq[changed_mask]))
-        
-        # Update the data
-        current_data$Cq <- parsed_cq
-        values$cached_raw_data <- current_data
-        
-        # Show warning modal if any conversions happened
-        if (length(conversions) > 0) {
-            showModal(modalDialog(
-                title = "Cq Values Converted",
-                tags$p("The following conversions were applied:"),
-                tags$ul(
-                    lapply(conversions, function(x) {tags$li(x)})
-                ),
-                easyClose = TRUE,
-                footer = modalButton("OK")
-            ))
-        }
-    })
-    
-    # -------------------------------------------------------------------------
-    # Observer: Update raw data from user edits
-    # -------------------------------------------------------------------------
-    
-    observeEvent(input$raw_data, {
-        if (!is.null(input$raw_data)) {
-            values$cached_raw_data <- hot_to_r(input$raw_data)
-        }
-    })
-    
-    
+
     # -------------------------------------------------------------------------
     # Output: Raw data table
     # -------------------------------------------------------------------------
@@ -282,12 +228,44 @@ server <- function(input, output, session) {
     })
     
     # -------------------------------------------------------------------------
-    # Observer: update cached_samples_tab when samples change in raw_data while preserving previous edits
+    # Observer: on raw data edit:
+    # 1. cache last raw_data and validate Cq values
+    # 2. update cached_samples_tab when samples change in raw_data while preserving previous edits
     # -------------------------------------------------------------------------
     
     observeEvent(input$raw_data, {
+
+
+        # 1. validate Cq values --------------------
+        current_data <- hot_to_r(input$raw_data)
         
-        # cache last state of samples_tab
+        original_cq <- current_data$Cq |> as.character() |> trimws() |> replace_na("")
+        parsed_cq <- parse_Cq(original_cq) |> as.character() |> replace_na("")
+        
+        # Find values that changed
+        changed_mask <- original_cq != parsed_cq
+        conversions <- map2_chr(original_cq[changed_mask], parsed_cq[changed_mask],
+                                ~ paste0(.x, " → ", .y)) |>
+                                unique()
+        
+        # Cache raw data
+        current_data$Cq <- parsed_cq
+        values$cached_raw_data <- current_data
+        
+        # Show warning modal if any conversions happened
+        if (length(conversions) > 0) {
+            showModal(modalDialog(
+                title = "Cq Values Converted",
+                tags$p("The following conversions were applied:"),
+                tags$ul(
+                    lapply(conversions, function(x) {tags$li(x)})
+                ),
+                easyClose = TRUE,
+                footer = modalButton("OK")
+            ))
+        }
+
+        # 2. cache last state of samples_tab ------------------------------
         values$cached_samples_tab <- hot_to_r(input$samples_tab)
         
         current_samples  <- hot_to_r(input$raw_data)$Sample |> unique() |> drop_empty()
