@@ -17,6 +17,10 @@ example_data <- data.frame(
     Cq     = round(rnorm(3 * 3 * 4, mean = 23.5, sd = 1.2), 2)
 )
 
+# helper function
+drop_empty <- function(x) {x[!is.na(x) & nzchar(trimws(x))]}
+
+
 # =============================================================================
 # UI Definition
 # =============================================================================
@@ -66,6 +70,7 @@ ui <- page_fillable(
         nav_panel(
             title = "Input Data",
             layout_sidebar(
+                fillable = T,
                 sidebar = sidebar(
                     title = "Sample Controls",
                     open = TRUE,
@@ -78,10 +83,8 @@ ui <- page_fillable(
                     ),
                     
                     hr(),
-                    helpText("Drag rows to reorder. Edit 'New Label' to rename."),
-                    helpText("Uncheck 'Include' to exclude samples from analysis."),
-                    
-                    rHandsontableOutput("samples_tab", height = "400px")
+                    helpText("Edit 'New Label' to rename samples. Drag the row number to reorder them. Uncheck 'Include' to exclude samples from analysis."),
+                    rHandsontableOutput("samples_tab")
                 ),
                 
                 # Main content area
@@ -134,7 +137,7 @@ server <- function(input, output, session) {
         ct_raw_df = data.frame(
             Sample = character(5),
             Target = character(5),
-            Cq     = numeric(5),
+            Cq     = character(5),
             stringsAsFactors = FALSE
         ),
         
@@ -169,47 +172,6 @@ server <- function(input, output, session) {
     #         select(-New_Label, -Include)
     # })
     
-    # -------------------------------------------------------------------------
-    # Observer: update cached_samples_tab when samples change in raw_data while preserving previous edits
-    # -------------------------------------------------------------------------
-    
-    observeEvent(input$raw_data, {
-        
-        # cache last state of samples_tab
-        values$cached_samples_tab <- hot_to_r(input$samples_tab)
-        
-        current_samples  <- hot_to_r(input$raw_data)$Sample |> unique()
-        # drop empty sample names
-        current_samples <- current_samples[!is.na(current_samples) & nzchar(trimws(current_samples))] 
-        
-        previous_samples <- values$cached_samples_tab$Sample
-        new_samples <- setdiff(current_samples, previous_samples)
-        
-        if (length(current_samples) == 0) {
-            # No valid samples, keep empty
-            values$cached_samples_tab <- data.frame(
-                Sample    = character(),
-                New_Label = character(),
-                Include   = logical()
-            )
-        } else if (length(previous_samples) == 0) {
-            # First time cached_samples_tab update
-            values$cached_samples_tab <- data.frame(
-                Sample    = current_samples,
-                New_Label = current_samples,
-                Include   = rep(TRUE, times=length(current_samples))
-            )
-         } else {
-            values$cached_samples_tab <- data.frame(Sample = current_samples) |>
-                # reapply previous edits for existing samples
-                left_join(values$cached_samples_tab) |>
-                # fill in defaults for new samples
-                mutate(
-                    New_Label = ifelse(is.na(New_Label), Sample, New_Label),
-                    Include   = ifelse(is.na(Include), TRUE, Include)
-                )
-         }
-    })
     
     # -------------------------------------------------------------------------
     # Observer: Toggle biological replicates column
@@ -259,6 +221,7 @@ server <- function(input, output, session) {
         }
     })
     
+    
     # -------------------------------------------------------------------------
     # Output: Raw data table
     # -------------------------------------------------------------------------
@@ -275,9 +238,48 @@ server <- function(input, output, session) {
         ) %>%
             hot_col("Sample", type = "text") %>%
             hot_col("Target", type = "text") %>%
-            hot_col("Cq", type = "numeric", format = "0.00") %>%
+            hot_col("Cq", type = "text") %>% # type = "text" to allow for Undetermined or other labels
             hot_context_menu(allowRowEdit = TRUE, allowColEdit = FALSE)
-
+    })
+    
+    # -------------------------------------------------------------------------
+    # Observer: update cached_samples_tab when samples change in raw_data while preserving previous edits
+    # -------------------------------------------------------------------------
+    
+    observeEvent(input$raw_data, {
+        
+        # cache last state of samples_tab
+        values$cached_samples_tab <- hot_to_r(input$samples_tab)
+        
+        current_samples  <- hot_to_r(input$raw_data)$Sample |> unique() |> drop_empty()
+        
+        previous_samples <- values$cached_samples_tab$Sample
+        new_samples <- setdiff(current_samples, previous_samples)
+        
+        if (length(current_samples) == 0) {
+            # No valid samples, keep empty
+            values$cached_samples_tab <- data.frame(
+                Sample    = character(),
+                New_Label = character(),
+                Include   = logical()
+            )
+        } else if (length(previous_samples) == 0) {
+            # First time cached_samples_tab update
+            values$cached_samples_tab <- data.frame(
+                Sample    = current_samples,
+                New_Label = current_samples,
+                Include   = rep(TRUE, times=length(current_samples))
+            )
+        } else {
+            # reapply previous edits for existing samples
+            values$cached_samples_tab <- data.frame(Sample = current_samples) |>
+                left_join(values$cached_samples_tab) |>
+                # fill in defaults for new samples
+                mutate(
+                    New_Label = coalesce(New_Label, Sample),
+                    Include   = coalesce(Include, TRUE)
+                )
+        }
     })
     
     # -------------------------------------------------------------------------
