@@ -234,11 +234,12 @@ server <- function(input, output, session) {
             rowHeaders = TRUE,
             readOnly = FALSE,
             contextMenu = TRUE,
-            stretchH = "all"
-        ) %>%
-            hot_col("Sample", type = "text") %>%
-            hot_col("Target", type = "text") %>%
-            hot_col("Cq", type = "text") %>% # type = "text" to allow for Undetermined or other labels
+            stretchH = "all",
+            renderAllRows = TRUE
+        ) |>
+            hot_col("Sample", type = "text") |>
+            hot_col("Target", type = "text") |>
+            hot_col("Cq", type = "text") |> # type = "text" to allow for Undetermined or other labels
             hot_context_menu(allowRowEdit = TRUE, allowColEdit = FALSE)
     })
     
@@ -296,9 +297,9 @@ server <- function(input, output, session) {
             contextMenu = FALSE,
             manualRowMove = TRUE
         ) |>
-            hot_col("Sample", readOnly = TRUE) %>%
-            hot_col("New_Label", type = "text") %>%
-            hot_col("Include", type = "checkbox") %>%
+            hot_col("Sample", readOnly = TRUE) |>
+            hot_col("New_Label", type = "text") |>
+            hot_col("Include", type = "checkbox") |>
             hot_cols(columnSorting = FALSE)
             
     })
