@@ -36,17 +36,17 @@ parse_Cq <- function(x) {
     )
 }
 
-get_y_limits <- function(x, min_range = 3) {
+get_y_limits <- function(x, min_range = 3, extra = 0) {
     y_min <- x[x < 1000] |> min(na.rm = TRUE)
     y_max <- x[x < 1000] |> max(na.rm = TRUE)
     y_range <- y_max - y_min
     
     if(y_range < min_range) {
         y_center <- (y_max + y_min) / 2
-        return(c(y_center - min_range / 2,
-                 y_center + min_range / 2))
+        return(c(y_center - min_range / 2 - extra,
+                 y_center + min_range / 2 + extra))
     } else {
-        return(c(y_min, y_max))
+        return(c(y_min - extra, y_max + extra))
     }
 }
 
@@ -422,11 +422,12 @@ server <- function(input, output, session) {
             filter(Target == input$target_select)
         
         # force a minumum of y-axis range of 3 units
-        y_limits <- get_y_limits(df_target$Cq, min_range = 3)
+        y_limits <- get_y_limits(df_target$Cq, min_range = 3, extra = 0.5)
         
         # apply squish to Cq values outside y_limits
         df_target_squished <- df_target |>
             mutate(
+                detection = ifelse(Cq > 1000, "Undetected", "Detected"),
                 Cq_squish = squish(Cq, range = y_limits)
             )
         
@@ -438,13 +439,16 @@ server <- function(input, output, session) {
                             "Cq: ", round(Cq, 2)
                             )
                         )) +
-            geom_quasirandom() +
+            geom_quasirandom(aes(
+                alpha = detection,
+            )) +
             labs(
                 x = "Sample",
                 y = "Cq",
                 title = NULL
             ) +
-            scale_y_continuous(expand = c(0,0)) +
+            scale_alpha_manual(values = c("Detected" = 1, "Undetected" = 0.3), name = "Detection") +
+            scale_y_continuous(expand = c(0.1)) +
             theme_minimal(base_size = 14) +
             theme(
                 legend.position = "bottom",
