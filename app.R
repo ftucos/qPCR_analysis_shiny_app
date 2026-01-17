@@ -27,12 +27,12 @@ parse_Cq <- function(x) {
     x <- str_trim(as.character(x))
     x <- case_when(
         # undetermined or other non-numeric labels
-        str_detect(x, "[A-Za-z]{2,}") ~ 999999,
+        str_detect(x, "[A-Za-z]{2,}") ~ "Inf",
         # higher than
-        str_detect(x, ">") ~ 999999,
+        str_detect(x, ">") ~ "Inf",
         # , as decimal mark
-        str_count(x, ",") == 1 & str_count(x, "\\.") == 0 ~ suppressWarnings(parse_number(x, locale = locale(decimal_mark = ","))),
-        TRUE ~ suppressWarnings(parse_number(x))
+        str_count(x, ",") == 1 & str_count(x, "\\.") == 0 ~ suppressWarnings(parse_number(x, locale = locale(decimal_mark = ","))) |> as.character(),
+        TRUE ~ suppressWarnings(parse_number(x)) |> as.character()
     )
 }
 
@@ -49,7 +49,6 @@ get_y_limits <- function(x, min_range = 3) {
         return(c(y_min, y_max))
     }
 }
-
 
 # =============================================================================
 # UI Definition
@@ -136,7 +135,7 @@ ui <- page_fillable(
         ),
         
         # ---------------------------------------------------------------------
-        # Panel 2: Outlier Cq values detection
+        # Panel 2: Cq values inspection and exclusion
         # ---------------------------------------------------------------------
         nav_panel(
             title = "Cq",
@@ -281,7 +280,7 @@ server <- function(input, output, session) {
         current_data <- hot_to_r(input$raw_data)
         
         original_cq <- current_data$Cq |> as.character() |> trimws() |> replace_na("")
-        parsed_cq <- parse_Cq(original_cq) |> as.character() |> replace_na("")
+        parsed_cq <- parse_Cq(original_cq) |> replace_na("")
         
         # Find values that changed
         changed_mask <- original_cq != parsed_cq
@@ -381,9 +380,11 @@ server <- function(input, output, session) {
                                    levels = samples_metadata$New_Label)) |>
             select(-New_Label, -Include) |>
             arrange(Sample) |>
-            mutate(Cq = parse_Cq(Cq) |> as.numeric())
+            mutate(Cq = parse_Cq(Cq) |> as.numeric(),
+                   Cq_no_und = ifelse(Cq == Inf, NA, Cq))
     })
     
+
     # -------------------------------------------------------------------------
     # Observer: Update target selector choices
     # -------------------------------------------------------------------------
@@ -416,21 +417,20 @@ server <- function(input, output, session) {
         # TODO:
         # - trim 999999 values
         # - add mean and/or median
-        # - outlier detection and highlighting
+        # - outlier highlighting
         
         df_target <- df |>
-            filter(Target == input$target_select) |>
-            filter(Cq < 1000) # remove undetected
+            filter(Target == input$target_select)
         
         # force a minumum of y-axis range of 3 units
-        y_limits <- get_y_limits(df_target$Cq, min_range = 3)
+        y_limits <- get_y_limits(df_target$Cq_no_und, min_range = 3)
         
         p <- ggplot(df_target,
-                    aes(x = Sample, y = Cq,
+                    aes(x = Sample, y = Cq_no_und,
                         text = paste0(
                             "Sample: ", Sample, "\n",
                             "Target: ", Target, "\n",
-                            "Cq: ", round(Cq, 2)
+                            "Cq: ", round(Cq_no_und, 2)
                             )
                         )) +
             geom_quasirandom() +
