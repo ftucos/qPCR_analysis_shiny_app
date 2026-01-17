@@ -6,6 +6,9 @@ library(shiny)
 library(bslib)
 library(tidyverse)
 library(rhandsontable)
+library(plotly)
+library(ggbeeswarm)
+library(scales)
 
 # =============================================================================
 # Example Data
@@ -33,6 +36,19 @@ parse_Cq <- function(x) {
     )
 }
 
+get_y_limits <- function(x, min_range = 3) {
+    y_min <- x[x < 1000] |> min(na.rm = TRUE)
+    y_max <- x[x < 1000] |> max(na.rm = TRUE)
+    y_range <- y_max - y_min
+    
+    if(y_range < min_range) {
+        y_center <- (y_max + y_min) / 2
+        return(c(y_center - min_range / 2,
+                 y_center + min_range / 2))
+    } else {
+        return(c(y_min, y_max))
+    }
+}
 
 
 # =============================================================================
@@ -120,11 +136,36 @@ ui <- page_fillable(
         ),
         
         # ---------------------------------------------------------------------
-        # Panel 2: Analysis
+        # Panel 2: Outlier Cq values detection
         # ---------------------------------------------------------------------
         nav_panel(
-            title = "Analysis",
-            layout_sidebar()
+            title = "Cq",
+            fillable = T,
+            layout_sidebar(
+                sidebar = sidebar(
+                    title = "Cq Inspection",
+                    open = TRUE,
+                    width = 380,
+                    
+                    selectInput(
+                        "target_select",
+                        "Select Target",
+                        choices = NULL # popolate dinamically
+                    ),
+                    hr(),
+                    br(),
+                    helpText("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."),
+                    br()
+                ),
+                # Main content area
+                card(
+                    full_screen = TRUE,
+                    fillable = TRUE,
+                    card_header(textOutput("ct_plot_title", inline = TRUE)),
+                    plotlyOutput("ct_plot", height = "100%")
+                )
+                #tableOutput("table_log")
+            )
         ),
         
         # ---------------------------------------------------------------------
@@ -320,29 +361,111 @@ server <- function(input, output, session) {
             
     })
 
+    
+    
+    # -------------------------------------------------------------------------
+    # Derived Reactive: Processed data (with parsed Cq, renames, sample ordering and exclusions)
+    # -------------------------------------------------------------------------
+    
+    cq_data <- reactive({
+        req(hot_to_r(input$raw_data))
+        req(nrow(hot_to_r(input$samples_tab)) > 0)
+        
+        samples_metadata <- hot_to_r(input$samples_tab)
+        
+        hot_to_r(input$raw_data) |>
+            inner_join(samples_metadata) |>
+            filter(Include) |>
+            # update and reorder sample name
+            mutate(Sample = factor(New_Label,
+                                   levels = samples_metadata$New_Label)) |>
+            select(-New_Label, -Include) |>
+            arrange(Sample) |>
+            mutate(Cq = parse_Cq(Cq) |> as.numeric())
+    })
+    
+    # -------------------------------------------------------------------------
+    # Observer: Update target selector choices
+    # -------------------------------------------------------------------------
+
+    observe({
+        req(cq_data())
+        targets <- cq_data()$Target |>
+            unique() |>
+            drop_empty()
+
+        if (length(targets) > 0) {
+            updateSelectInput(session, "target_select", choices = targets, selected = targets[1])
+        }
+    })
+    
+    # -------------------------------------------------------------------------
+    # Output: Plot and plot title
+    # -------------------------------------------------------------------------
+    
+    output$ct_plot_title <- renderText({
+        req(input$target_select)
+        paste("Cq Values for", input$target_select)
+    })
+    
+    output$ct_plot <- renderPlotly({
+        df <- cq_data()
+        req(df, nrow(df) > 0)
+        req(input$target_select)
+        
+        # TODO:
+        # - trim 999999 values
+        # - add mean and/or median
+        # - outlier detection and highlighting
+        
+        df_target <- df |>
+            filter(Target == input$target_select)
+        
+        # force a minumum of y-axis range of 3 units
+        y_limits <- get_y_limits(df_target$Cq, min_range = 3)
+        
+        # apply squish to Cq values outside y_limits
+        df_target_squished <- df_target |>
+            mutate(
+                Cq_squish = squish(Cq, range = y_limits)
+            )
+        
+        p <- ggplot(df_target_squished,
+                    aes(x = Sample, y = Cq_squish,
+                        text = paste0(
+                            "Sample: ", Sample, "\n",
+                            "Target: ", Target, "\n",
+                            "Cq: ", round(Cq, 2)
+                            )
+                        )) +
+            geom_quasirandom() +
+            labs(
+                x = "Sample",
+                y = "Cq",
+                title = NULL
+            ) +
+            scale_y_continuous(expand = c(0,0)) +
+            theme_minimal(base_size = 14) +
+            theme(
+                legend.position = "bottom",
+                panel.grid.minor = element_blank(),
+                axis.text.x = element_text(angle = 45, hjust = 1)
+            )
+        
+        ggplotly(p, tooltip = "text")
+        
+        # ggplotly(p, tooltip = "text", source = "ct_plot") |>
+        #     layout(
+        #         dragmode = "select",
+        #         clickmode = "event+select"
+        #     ) |>
+        #     event_register("plotly_click")
+        
+    
+        })
+    
 }
 
-
-# -------------------------------------------------------------------------
-# Derived Reactive: Processed data (with renames, ordering, exclusions)
-# -------------------------------------------------------------------------
-
-ct_processed <- reactive({
-    req(hot_to_r(input$raw_data))
-    req(nrow(hot_to_r(input$samples_tab)) > 0)
-
-    samples_metadata <- hot_to_r(input$samples_tab)
-
-    hot_to_r(input$raw_data) |>
-        inner_join(samples_df) |>
-        filter(Include) |>
-        # update and reorder sample name
-        mutate(Sample = factor(New_Label,
-                               levels = samples_df$New_Label)) |>
-        select(-New_Label, -Include) |>
-        arrange(Sample) |>
-        mutate(Cq = parse_Cq(Cq))
-})
 
 
 # =============================================================================
