@@ -20,6 +20,14 @@ example_data <- data.frame(
     Cq     = round(rnorm(3 * 3 * 4, mean = 23.5, sd = 1.2), 2) |> as.character()
 )
 
+# empty raw data table to initialize rhandsontable
+empty_raw_data <- data.frame(
+    Sample = character(5),
+    Target = character(5),
+    Cq     = character(5),
+    stringsAsFactors = FALSE
+)
+
 # helper functions ==========================================
 drop_empty <- function(x) {x[!is.na(x) & nzchar(trimws(x))]}
 
@@ -124,11 +132,22 @@ ui <- page_fillable(
                     card_header("qPCR Data Entry"),
                     helpText("Paste your qPCR data below directly from Excel"),
                     rHandsontableOutput("raw_data", height = "90%"),
-                    actionButton(
-                        "load_example",
-                        "Load Example Data",
-                        width = "180px",
-                        class = "btn-outline-secondary btn-sm"
+                    # place two buttons next to each other
+                    div(
+                        style = "display: flex; gap: 10px",
+                        class = "d-flex justify-content-center",
+                        actionButton(
+                            "load_example",
+                            "Load Example Data",
+                            width = "150px",
+                            class = "btn-outline-secondary btn-sm"
+                        ),
+                        actionButton(
+                            "clear_data",
+                            "Clear Data",
+                            width = "150px",
+                            class = "btn-outline-danger btn-sm"
+                        )
                     )
                 )
             )
@@ -189,12 +208,7 @@ server <- function(input, output, session) {
     
     values <- reactiveValues(
         # cached raw data, required to add/remove replicate column
-        cached_raw_data = data.frame(
-            Sample = character(5),
-            Target = character(5),
-            Cq     = character(5),
-            stringsAsFactors = FALSE
-        ),
+        cached_raw_data = empty_raw_data,
         
         # Initialize empty sample control table (rename, reorder, exclude)
         # this has to be used only as cached last state 
@@ -245,6 +259,14 @@ server <- function(input, output, session) {
         
         values$cached_raw_data <- data_to_load
     })
+    
+    # -------------------------------------------------------------------------
+    # Observer: clean data
+    # -------------------------------------------------------------------------
+    
+    observeEvent(input$clear_data, {
+        values$cached_raw_data <- empty_raw_data
+    })
 
     # -------------------------------------------------------------------------
     # Output: Raw data table
@@ -252,7 +274,7 @@ server <- function(input, output, session) {
     
     output$raw_data <- renderRHandsontable({
         req(values$cached_raw_data)
-        
+
         rhandsontable(
             values$cached_raw_data,
             rowHeaders = TRUE,
@@ -265,6 +287,7 @@ server <- function(input, output, session) {
             hot_col("Target", type = "text") |>
             hot_col("Cq", type = "text") |> # type = "text" to allow for Undetermined or other labels
             hot_context_menu(allowRowEdit = TRUE, allowColEdit = FALSE)
+        
     })
     
     # -------------------------------------------------------------------------
@@ -274,7 +297,6 @@ server <- function(input, output, session) {
     # -------------------------------------------------------------------------
     
     observeEvent(input$raw_data, {
-
 
         # 1. validate Cq values --------------------
         current_data <- hot_to_r(input$raw_data)
