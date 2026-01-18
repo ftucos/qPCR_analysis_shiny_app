@@ -494,7 +494,7 @@ server <- function(input, output, session) {
                         text = paste0(
                             Sample, 
                             ifelse("Replicate" %in% names(df_target),
-                                    paste0("(", Replicate, ")"),
+                                    paste0(" (", Replicate, ")"),
                                     ""
                             ), "\n",
                             "Target: ", Target, "\n",
