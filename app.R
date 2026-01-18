@@ -263,7 +263,7 @@ server <- function(input, output, session) {
             }
         } else {
             # drop replicate column if present
-            values$cached_raw_data <- select(-any_of("Replicate"))
+            values$cached_raw_data <- select(current_data, -any_of("Replicate"))
         }
     })
     
@@ -464,11 +464,6 @@ server <- function(input, output, session) {
         df <- cq_data()
         req(df, nrow(df) > 0)
         req(input$target_select)
-        
-        # TODO:
-        # - trim 999999 values
-        # - add mean and/or median
-        # - outlier highlighting
         
         df_target <- df |>
             filter(Target == input$target_select) |>
