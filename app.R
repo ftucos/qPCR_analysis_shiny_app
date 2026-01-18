@@ -15,12 +15,6 @@ library(scales)
 # Example Data
 # =============================================================================
 
-example_data <- data.frame(
-    Sample = rep(c("Sample1", "Sample2", "Sample3"), each = 4 * 3),
-    Target = rep(rep(c("HK1", "HK2", "TG1", "TG2"), each = 3), 3),
-    Cq     = round(rnorm(3 * 3 * 4, mean = 23.5, sd = 1.2), 2) |> as.character()
-)
-
 # empty raw data table to initialize rhandsontable
 empty_raw_data <- data.frame(
     Sample = character(5),
@@ -29,47 +23,19 @@ empty_raw_data <- data.frame(
     stringsAsFactors = FALSE
 )
 
+example_data <- data.frame(
+    Sample = rep(c("Sample1", "Sample2", "Sample3"), each = 4 * 3),
+    Target = rep(rep(c("HK1", "HK2", "TG1", "TG2"), each = 3), 3),
+    Cq     = round(rnorm(3 * 3 * 4, mean = 23.5, sd = 1.2), 2) |> as.character()
+)
+
+
 # helper functions ==========================================
 drop_empty <- function(x) {x[!is.na(x) & nzchar(trimws(x))]}
 
-parse_Cq <- function(x) {
-    x <- str_trim(as.character(x))
-    x <- case_when(
-        # undetermined or other non-numeric labels
-        str_detect(x, "[A-Za-z]{2,}") ~ "Inf",
-        # higher than
-        str_detect(x, ">") ~ "Inf",
-        # , as decimal mark
-        str_count(x, ",") == 1 & str_count(x, "\\.") == 0 ~ suppressWarnings(parse_number(x, locale = locale(decimal_mark = ","))) |> as.character(),
-        TRUE ~ suppressWarnings(parse_number(x)) |> as.character()
-    )
-}
-
-get_y_limits <- function(x, min_range = 3) {
-    y_min <- min(x, na.rm = TRUE)
-    y_max <- max(x, na.rm = TRUE)
-    y_range <- y_max - y_min
-    
-    if(y_range < min_range) {
-        y_center <- (y_max + y_min) / 2
-        return(c(y_center - min_range / 2,
-                 y_center + min_range / 2))
-    } else {
-        return(c(y_min, y_max))
-    }
-}
-
-# adapted from https://stackoverflow.com/a/59723151/7793290
-fix_plotly_legend <- function(pplot) {
-    for (i in seq_along(pplot$x$data)) {
-        nm <- pplot$x$data[[i]]$name
-        if (!is.null(nm)) {
-            pplot$x$data[[i]]$name <- sub("^\\(([^,]+),.*\\)$", "\\1", nm)
-        }
-    }
-    
-    pplot
-}
+source("R/parse_Cq.R")
+source("R/get_y_limits.R")
+source("R/fix_plotly_legend.R")
 
 # =============================================================================
 # UI Definition
