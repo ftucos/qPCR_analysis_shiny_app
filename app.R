@@ -87,17 +87,17 @@ ui <- page_fillable(
             title = "Input Data",
             layout_sidebar(
                 fillable = T,
+                height = "100%",
                 sidebar = sidebar(
                     title = "Sample Controls",
                     open = TRUE,
                     width = 380,
-                    
-                    checkboxInput(
+                    prettySwitch(
                         "include_replicates",
-                        "Include biological replicates column",
+                        label = "Include biological replicates column",
+                        fill  = TRUE, status = "primary",
                         value = FALSE
                     ),
-                    
                     hr(),
                     helpText("Edit 'New Label' to rename samples. Drag the row number to reorder them. Uncheck 'Include' to exclude samples from analysis."),
                     rHandsontableOutput("samples_tab")
@@ -114,7 +114,7 @@ ui <- page_fillable(
                     # place two buttons next to each other
                     div(
                         style = "display: flex; gap: 10px",
-                        class = "d-flex justify-content-center",
+                        class = "d-flex justify-content-between",
                         actionButton(
                             "load_example",
                             "Load Example Data",
@@ -125,7 +125,7 @@ ui <- page_fillable(
                             "clear_data",
                             "Clear Data",
                             width = "150px",
-                            class = "btn-outline-danger btn-sm"
+                            class = "btn-danger btn-sm"
                         )
                     )
                 )
@@ -151,11 +151,10 @@ ui <- page_fillable(
                     ),
                     radioGroupButtons(
                         inputId = "aggr_function",
-                        label = "Aggregate Technical Replicates by:",
+                        label = "Summarize by:",
                         choices = c("Mean" = "mean", "Median" = "median"),
-                        justified = TRUE,   # fill the row
-                        individual = FALSE,  # more "segmented" feel
-                        width = "100%",
+                        justified = TRUE,
+                        width = "200px",
                         size = "sm"
                     ),
                     hr(),
