@@ -59,6 +59,18 @@ get_y_limits <- function(x, min_range = 3) {
     }
 }
 
+# adapted from https://stackoverflow.com/a/59723151/7793290
+fix_plotly_legend <- function(pplot) {
+    for (i in seq_along(pplot$x$data)) {
+        nm <- pplot$x$data[[i]]$name
+        if (!is.null(nm)) {
+            pplot$x$data[[i]]$name <- sub("^\\(([^,]+),.*\\)$", "\\1", nm)
+        }
+    }
+    
+    pplot
+}
+
 # =============================================================================
 # UI Definition
 # =============================================================================
@@ -482,6 +494,7 @@ server <- function(input, output, session) {
         # force a minumum of y-axis range of 3 units
         y_limits <- get_y_limits(df_target$Cq_no_und, min_range = 3)
         
+        
         p <- ggplot(df_target,
                     aes(x = Sample, y = Cq_no_und,
                         alpha = Keep_label,
@@ -501,21 +514,27 @@ server <- function(input, output, session) {
             geom_quasirandom(
                 color = secondary_color(),
             ) +
+            scale_alpha_manual(
+                values = c("Included" = 1, "Excluded" = 0.3),
+                name = "",
+            ) +
+            # add mean/median points
             geom_point(data = df_summary_target, 
-                       aes(x = Sample, y = .data[[input$aggr_function]]),
+                       aes(x = Sample, y = .data[[input$aggr_function]],
+                           shape = str_to_title(input$aggr_function)),
                        inherit.aes = F,
-                       shape = 4, size = 4, color = accent_color()
+                       size = 4, color = accent_color()
                        ) +
+            scale_shape_manual(
+                values = 4,
+                name = ""
+            ) +
             labs(
                 x = "Sample",
                 y = "Cq",
                 title = NULL
             ) +
             scale_y_continuous(expand = c(0.1)) +
-            scale_alpha_manual(
-                values = c("Included" = 1, "Excluded" = 0.3),
-                name = "",
-            ) +
             theme_minimal(base_size = 14) +
             theme(
                 legend.position = "bottom",
@@ -529,9 +548,8 @@ server <- function(input, output, session) {
         }
         
         ggplotly(p, tooltip = "text", source = "ct_plot") |>
-            event_register("plotly_click")
-        
-    
+            event_register("plotly_click") |>
+            fix_plotly_legend()
         })
     
     # -------------------------------------------------------------------------
