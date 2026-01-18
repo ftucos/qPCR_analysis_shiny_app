@@ -4,6 +4,7 @@
 
 library(shiny)
 library(bslib)
+library(shinyWidgets)
 library(tidyverse)
 library(rhandsontable)
 library(plotly)
@@ -170,6 +171,15 @@ ui <- page_fillable(
                         "Select Target",
                         choices = NULL # popolate dinamically
                     ),
+                    radioGroupButtons(
+                        inputId = "aggr_function",
+                        label = "Aggregate Technical Replicates by:",
+                        choices = c("Mean" = "mean", "Median" = "median"),
+                        justified = TRUE,   # fill the row
+                        individual = FALSE,  # more "segmented" feel
+                        width = "100%",
+                        size = "sm"
+                    ),
                     hr(),
                     br(),
                     helpText("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."),
@@ -203,6 +213,17 @@ ui <- page_fillable(
 server <- function(input, output, session) {
     
     # -------------------------------------------------------------------------
+    # Current theme accent color
+    # -------------------------------------------------------------------------
+    accent_color <- reactive({
+        bslib::bs_get_variables(bslib::bs_current_theme(session), "primary")[[1]]
+    })
+    
+    secondary_color <- reactive({
+        bslib::bs_get_variables(bslib::bs_current_theme(session), "secondary")[[1]]
+    })
+    
+    # -------------------------------------------------------------------------
     # Reactive Values
     # -------------------------------------------------------------------------
     
@@ -218,7 +239,10 @@ server <- function(input, output, session) {
             New_Label = character(),
             Include   = logical(),
             stringsAsFactors = FALSE
-        )
+        ),
+        
+        # list of excluded points
+        excluded_point_keys = c()
     )
 
     
@@ -228,21 +252,18 @@ server <- function(input, output, session) {
     
     observeEvent(input$include_replicates, {
         if (is.null(input$raw_data)) return()
+        
         current_data <- hot_to_r(input$raw_data)
         
         if (input$include_replicates) {
+            # add replicate column if missing
             if (!"Replicate" %in% names(current_data)) {
-                values$cached_raw_data <- cbind(
-                    current_data,
-                    Replicate = rep("R1", nrow(current_data))
-                )
+                values$cached_raw_data <- current_data |>
+                    mutate(Replicate = "R1")
             }
         } else {
-            if ("Replicate" %in% names(current_data)) {
-                values$cached_raw_data <- current_data[
-                    , !names(current_data) %in% "Replicate", drop = FALSE
-                ]
-            }
+            # drop replicate column if present
+            values$cached_raw_data <- select(-any_of("Replicate"))
         }
     })
     
@@ -266,6 +287,8 @@ server <- function(input, output, session) {
     
     observeEvent(input$clear_data, {
         values$cached_raw_data <- empty_raw_data
+        # reset the lsit of excluded points
+        values$excluded_point_keys <- c()
     })
 
     # -------------------------------------------------------------------------
@@ -292,8 +315,8 @@ server <- function(input, output, session) {
     
     # -------------------------------------------------------------------------
     # Observer: on raw data edit:
-    # 1. cache last raw_data and validate Cq values
-    # 2. update cached_samples_tab when samples change in raw_data while preserving previous edits
+    # 1. cache last `raw_data` and validate Cq values
+    # 2. update `cached_samples_tab` when samples change in raw_data while preserving previous edits 
     # -------------------------------------------------------------------------
     
     observeEvent(input$raw_data, {
@@ -310,8 +333,10 @@ server <- function(input, output, session) {
                                 ~ paste0(.x, " → ", .y)) |>
                                 unique()
         
-        # Cache raw data
+        # Update parsed Cq values
         current_data$Cq <- parsed_cq
+        
+        # Cache updated raw data
         values$cached_raw_data <- current_data
         
         # Show warning modal if any conversions happened
@@ -391,10 +416,13 @@ server <- function(input, output, session) {
     cq_data <- reactive({
         req(hot_to_r(input$raw_data))
         req(nrow(hot_to_r(input$samples_tab)) > 0)
-        
+
         samples_metadata <- hot_to_r(input$samples_tab)
         
         hot_to_r(input$raw_data) |>
+            mutate(Key = row_number()) |> # add unique Key ID matching raw data rows
+            relocate(Key, .before = 1) |>
+            # join with sample metadata for renaming, reordering and exclusion
             inner_join(samples_metadata) |>
             filter(Include) |>
             # update and reorder sample name
@@ -403,10 +431,13 @@ server <- function(input, output, session) {
             select(-New_Label, -Include) |>
             arrange(Sample) |>
             mutate(Cq = parse_Cq(Cq) |> as.numeric(),
-                   Cq_no_und = ifelse(Cq == Inf, NA, Cq))
+                   Cq_no_und = ifelse(Cq == Inf, NA, Cq)) |>
+        # mark excluded points
+            mutate(
+                Keep = !Key %in% values$excluded_point_keys
+            )
     })
     
-
     # -------------------------------------------------------------------------
     # Observer: Update target selector choices
     # -------------------------------------------------------------------------
@@ -442,26 +473,56 @@ server <- function(input, output, session) {
         # - outlier highlighting
         
         df_target <- df |>
-            filter(Target == input$target_select)
+            filter(Target == input$target_select) |>
+            mutate(Keep_label = ifelse(Keep, "Included", "Excluded"))
+        
+        df_summary_target <- df_target |>
+            filter(Keep) |>
+            group_by(across(
+                c("Sample", "Target", any_of("Replicate"))
+            )) |>
+            summarize(
+                mean   = mean(Cq_no_und, na.rm = TRUE),
+                median = median(Cq_no_und, na.rm = TRUE),
+            )
         
         # force a minumum of y-axis range of 3 units
         y_limits <- get_y_limits(df_target$Cq_no_und, min_range = 3)
         
         p <- ggplot(df_target,
                     aes(x = Sample, y = Cq_no_und,
+                        alpha = Keep_label,
+                        # label on hoover
                         text = paste0(
-                            "Sample: ", Sample, "\n",
+                            Sample, 
+                            ifelse("Replicate" %in% names(df_target),
+                                    paste0("(", Replicate, ")"),
+                                    ""
+                            ), "\n",
                             "Target: ", Target, "\n",
-                            "Cq: ", round(Cq_no_und, 2)
-                            )
+                            "Cq: ", round(Cq_no_und, 2),
+                            ifelse(Keep, "", " (excluded)")
+                            ),
+                        key = Key
                         )) +
-            geom_quasirandom() +
+            geom_quasirandom(
+                color = secondary_color(),
+            ) +
+            geom_point(data = df_summary_target, 
+                       aes(x = Sample, y = .data[[input$aggr_function]]),
+                       inherit.aes = F,
+                       shape = 4, size = 4, color = accent_color()
+                       ) +
             labs(
                 x = "Sample",
                 y = "Cq",
                 title = NULL
             ) +
             scale_y_continuous(expand = c(0.1)) +
+            scale_alpha_manual(
+                values = c("Included" = 1, "Excluded" = 0.3),
+                name = "",
+            ) +
             theme_minimal(base_size = 14) +
             theme(
                 legend.position = "bottom",
@@ -469,17 +530,36 @@ server <- function(input, output, session) {
                 axis.text.x = element_text(angle = 45, hjust = 1)
             )
         
-        ggplotly(p, tooltip = "text")
+        # facet by replicate if present
+        if ("Replicate" %in% names(df)) {
+            p <- p + facet_wrap(~ Replicate)
+        }
         
-        # ggplotly(p, tooltip = "text", source = "ct_plot") |>
-        #     layout(
-        #         dragmode = "select",
-        #         clickmode = "event+select"
-        #     ) |>
-        #     event_register("plotly_click")
+        ggplotly(p, tooltip = "text", source = "ct_plot") |>
+            event_register("plotly_click")
         
     
         })
+    
+    # -------------------------------------------------------------------------
+    # Observer: Handle click-to-exclude
+    # -------------------------------------------------------------------------
+    
+    observeEvent(event_data("plotly_click", source = "ct_plot"), {
+        click <- event_data("plotly_click", source = "ct_plot")
+        req(click)
+        
+        clicked_key <- click$key
+        
+        # toggle inclusion/exclusion
+        if(clicked_key %in% values$excluded_point_keys) {
+            # currently excluded, include it (remove it from the exclusion list)
+            values$excluded_point_keys <- setdiff(values$excluded_point_keys, clicked_key)
+        } else {
+            # currently included, exclude it (add it to the exclusion list)
+            values$excluded_point_keys <- append(clicked_key, values$excluded_point_keys)
+        }
+    })
     
 }
 
