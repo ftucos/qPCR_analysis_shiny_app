@@ -448,9 +448,7 @@ server <- function(input, output, session) {
             unique() |>
             drop_empty()
 
-        if (length(targets) > 0) {
-            updateSelectInput(session, "target_select", choices = targets, selected = targets[1])
-        }
+        updateSelectInput(session, "target_select", choices = targets, selected = targets[1])
     })
     
     # -------------------------------------------------------------------------
