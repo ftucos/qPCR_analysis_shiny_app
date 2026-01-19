@@ -46,35 +46,7 @@ source("R/is_HK.R")
 ui <- page_fillable(
     # Custom CSS
     tags$head(
-        tags$style(HTML("
-            /* Prevent horizontal scrollbars in rhandsontable */
-            .handsontable {
-                overflow-x: hidden;
-                overflow-y: scroll;
-            }
-            
-            /* Handsontable context menu above bslib fullscreen overlays */
-            .htContextMenu:not(.htGhostTable) {
-                z-index: 30000 !important;
-            }
-            
-            /* Fix hidden row numbers in overflowing table */
-            .handsontable.ht_clone_left {
-                height: auto !important;
-            }
-                    
-            .handsontable .wtHolder {
-                height: 100% !important;
-            }
-            
-            /* Bootstrap tooltip box */
-            .tooltip .tooltip-inner{
-              max-width: 380px;    
-              text-align: justify;
-              text-justify: inter-word;
-              white-space: normal; 
-            }
-        "))
+        tags$link(rel = "stylesheet", type = "text/css", href = "custom.css")
     ),
     
     # Main navigation

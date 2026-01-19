@@ -1,0 +1,28 @@
+/* Prevent horizontal scrollbars in rhandsontable */
+.handsontable {
+	overflow-x: hidden;
+	overflow-y: scroll;
+}
+
+/* Handsontable context menu above bslib fullscreen overlays */
+.htContextMenu:not(.htGhostTable) {
+	z-index: 30000 !important;
+}
+
+/* Fix hidden row numbers in overflowing table */
+.handsontable.ht_clone_left {
+	height: auto !important;
+}
+		
+.handsontable .wtHolder {
+	height: 100% !important;
+}
+
+/* Bootstrap tooltip box */
+/* TODO: do not affect plotly tooltip */
+.tooltip .tooltip-inner{
+	max-width: 380px;    
+	text-align: justify;
+	text-justify: inter-word;
+	white-space: normal; 
+}
