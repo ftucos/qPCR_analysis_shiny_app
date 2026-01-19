@@ -23,7 +23,7 @@ hk_summary_int <- raw_data |>
         HK_mean = mean(Cq, na.rm = TRUE),
         HK_sd   = sd(Cq, na.rm = TRUE),
         HK_n    = length(na.omit(Cq)), # sample size for each gene
-        HK_se   = HK_sd/sqrt(HK_n),
+        #HK_se   = HK_sd/sqrt(HK_n),
         .groups = "drop"
     )
 
@@ -38,7 +38,9 @@ hk_summary <- hk_summary_int |>
                 (sum(HK_n)-n_HK_genes)
         ), 
         HK_avg_sd = (1/2)*sqrt(sum(HK_sd^2)),
-        HK_se   = (1/n_HK_genes)*sqrt(sum(HK_sd_pool^2/HK_n)),
-        HK_se2  = (1/n_HK_genes)*sqrt(sum(HK_sd^2/HK_n)),
+        HK_se_pooled = HK_sd_pool*sqrt(1/(sum(HK_n, na.rm = T))),
+        # alternative formulas assuming equale weight 
+        # HK_se   = (1/n_HK_genes)*sqrt(sum(HK_sd_pool^2/HK_n)),
+        # HK_se2  = (1/n_HK_genes)*sqrt(sum(HK_sd^2/HK_n)),
         .groups = "drop"
     )

@@ -180,6 +180,7 @@ ui <- page_fillable(
                     title = "ΔCq Settings",
                     open = TRUE,
                     width = 380,
+                    h5("HK genes"),
                     pickerInput(
                         inputId = "hk_genes",
                         label = "Select HK gene(s):", 
@@ -190,12 +191,39 @@ ui <- page_fillable(
                         width = "100%"
                     ),
                     hr(),
+                    h5("Visualization"),
                     selectInput(
                         "dCt_target_select",
                         "Select Target",
                         choices = NULL # popolate dinamically
                     ),
-                    br(),hr(),br()
+                    prettySwitch(
+                        "dCq_stats",
+                        label = "Show descriptive statistics",
+                        fill  = TRUE, status = "primary",
+                        value = FALSE
+                    ),
+                    conditionalPanel(
+                        condition = "input.dCq_stats === true",
+
+                        radioGroupButtons(
+                            inputId = "dCq_stat_type",
+                            label = "Summarize by:",
+                            choices = c("SD", "SEM"),
+                            justified = TRUE,
+                            width = "120px",
+                            size = "sm"
+                        ),
+                        
+                        prettySwitch(
+                            "dCq_pool_hk_var",
+                            label = "Pool HK variance",
+                            fill  = TRUE, status = "primary",
+                            value = TRUE
+                        ),
+                    ),
+                    
+                    br()
                 ),
                 # Main content area
                 card(
@@ -594,6 +622,8 @@ server <- function(input, output, session) {
             # summarize each HK separately
             summarize(
                 HK_mean = mean(Cq_no_und, na.rm = TRUE),
+                HK_sd   = sd(Cq, na.rm = TRUE),
+                HK_n    = length(na.omit(Cq)), # sample size for each gene
                 .groups = "drop"
             ) |>
             # summarize all HKs per sample
@@ -601,7 +631,14 @@ server <- function(input, output, session) {
                 c("Sample",  any_of("Replicate"))
             )) |>
             summarize(
-                HK_mean = mean(HK_mean, na.rm = TRUE),
+                HK_mean      = mean(HK_mean, na.rm = TRUE),
+                n_HK_genes   = sum(HK_n > 0),
+                # pooled SD for independet samples, allowing different mean (same as in ANOVA)
+                HK_sd_pool   = sqrt(
+                    sum(HK_sd^2*(HK_n-1), na.rm = T)/
+                        (sum(HK_n,  na.rm = T)-n_HK_genes)
+                ), 
+                HK_se_pooled = HK_sd_pool*sqrt(1/(sum(HK_n, na.rm = T))),
                 .groups = "drop"
             )
         
@@ -610,7 +647,18 @@ server <- function(input, output, session) {
                    !Target %in% input$hk_genes) |>
             left_join(HK_summary) |>
             mutate(
-                dCq = Cq_no_und - HK_mean,
+                Cq_n   = length(na.omit(Cq)),
+                Cq_sd  = sd(Cq_no_und, na.rm = TRUE),
+                Cq_se  = Cq_sd/sqrt(Cq_n),
+                
+                dCq    = Cq_no_und - HK_mean,
+                dCq_sd = sqrt(Cq_sd^2 + HK_sd_pool^2),
+                dCq_se = sqrt(Cq_sd^2 + HK_sd_pool^2),
+                
+                # Compute Cq stats (SD only), without propagating housekeeping-gene (HK) uncertainty.
+                # This is statistically wrong but common in practice because it’s straightforward to compute.
+                dCq_sd_no_p = sd(dCq, na.rm = TRUE),
+                dCq_se_no_p = dCq_sd_no_p/sqrt(Cq_n)
             )
     })
     
