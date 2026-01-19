@@ -646,22 +646,15 @@ server <- function(input, output, session) {
                    !Target %in% input$hk_genes) |>
             left_join(HK_summary) |>
             mutate(
-                Cq_n   = length(na.omit(Cq)),
-                Cq_sd  = sd(Cq_no_und, na.rm = TRUE),
-                Cq_se  = Cq_sd/sqrt(Cq_n),
-                
                 dCq    = Cq_no_und - HK_mean,
-                dCq_sd = sqrt(Cq_sd^2 + HK_sd_pool^2),
-                dCq_se = sqrt(Cq_sd^2 + HK_sd_pool^2),
-                
-                # Compute Cq stats (SD only), without propagating housekeeping-gene (HK) uncertainty.
-                # This is statistically wrong but common in practice because it’s straightforward to compute.
-                dCq_sd_no_p = sd(dCq, na.rm = TRUE),
-                dCq_se_no_p = dCq_sd_no_p/sqrt(Cq_n)
             )
     })
     
-    dCq_summary <- reactive({
+    # -------------------------------------------------------------------------
+    # Derived Reactive: dCq summary per individual replicate
+    # -------------------------------------------------------------------------
+    
+    dCq_rep_summary <- reactive({
         req(dCq_data())
         req(nrow(dCq_data()) > 0)
         
@@ -670,7 +663,21 @@ server <- function(input, output, session) {
                 c("Sample", "Target", any_of("Replicate"))
             )) |>
             summarize(
+                Cq_n   = length(na.omit(dCq)),
+                Cq_sd  = sd(Cq_no_und, na.rm = TRUE),
+                Cq_se  = Cq_sd/sqrt(Cq_n),
+                
                 dCq_mean = mean(dCq, na.rm = TRUE),
+                # propagate SD and SE including HK variance/uncertainty.
+                dCq_sd = sqrt(Cq_sd^2 + HK_sd_pool^2),
+                dCq_se = sqrt(Cq_sd^2 + HK_sd_pool^2),
+                
+                # Compute Cq stats (SD only), without propagating HK variance/uncertainty.
+                # This is statistically wrong but common in practice because it’s straightforward to compute.
+                dCq_sd_no_p = sd(dCq, na.rm = TRUE),
+                dCq_se_no_p = dCq_sd_no_p/sqrt(Cq_n),
+                
+                
                 .groups = "drop"
             )
     })
