@@ -25,7 +25,7 @@ empty_raw_data <- data.frame(
 
 example_data <- data.frame(
     Sample = rep(c("Sample1", "Sample2", "Sample3"), each = 4 * 3),
-    Target = rep(rep(c("HK1", "HK2", "TG1", "TG2"), each = 3), 3),
+    Target = rep(rep(c("TBP", "Target1", "Actin", "Target2"), each = 3), 3),
     Cq     = round(rnorm(3 * 3 * 4, mean = 23.5, sd = 1.2), 2) |> as.character()
 )
 
@@ -36,6 +36,7 @@ drop_empty <- function(x) {x[!is.na(x) & nzchar(trimws(x))]}
 source("R/parse_Cq.R")
 source("R/get_y_limits.R")
 source("R/fix_plotly_legend.R")
+source("R/is_HK.R")
 
 # =============================================================================
 # UI Definition
@@ -169,12 +170,35 @@ ui <- page_fillable(
                     card_header(textOutput("ct_plot_title", inline = TRUE)),
                     plotlyOutput("ct_plot", height = "100%")
                 )
-                #tableOutput("table_log")
             )
         ),
         
         # ---------------------------------------------------------------------
-        # Panel 3: Results
+        # Panel 3: dCq analysis
+        # ---------------------------------------------------------------------
+        nav_panel(
+            title = "ΔCq",
+            fillable = TRUE,
+            layout_sidebar(
+                sidebar = sidebar(
+                    title = "ΔCq Settings",
+                    open = TRUE,
+                    width = 380,
+                    pickerInput(
+                        inputId = "hk_genes",
+                        label = "Select HK gene(s):", 
+                        choices = NULL, # populate dynamicallyLL,
+                        multiple = TRUE,
+                        options = pickerOptions(container = "body", 
+                                                actionsBox = TRUE),
+                        width = "100%"
+                    )
+                )
+            )
+        ),
+        
+        # ---------------------------------------------------------------------
+        # Panel 4: Results
         # ---------------------------------------------------------------------
         nav_panel(
             title = "Results",
@@ -421,11 +445,16 @@ server <- function(input, output, session) {
 
     observe({
         req(cq_data())
+        
         targets <- cq_data()$Target |>
             unique() |>
             drop_empty()
 
         updateSelectInput(session, "target_select", choices = targets, selected = targets[1])
+        
+        selected_hk <- targets[is_HK(targets)]
+        
+        updatePickerInput(session, "hk_genes", choices = targets, selected = selected_hk)
     })
     
     # -------------------------------------------------------------------------
@@ -537,7 +566,59 @@ server <- function(input, output, session) {
         }
     })
     
+    # -------------------------------------------------------------------------
+    # Derived Reactive: dCq
+    # -------------------------------------------------------------------------
+    
+    dCq_data <- reactive({
+        req(cq_data())
+        req(nrow(cq_data()) > 0)
+        req(length(input$hk_genes) > 0)
+        
+        HK_summary <- cq_data() |>
+            filter(Target %in% input$hk_genes, Keep) |>
+            group_by(across(
+                c("Sample", "Target", any_of("Replicate"))
+                )) |>
+            # summarize each HK separately
+            summarize(
+                HK_mean = mean(Cq_no_und, na.rm = TRUE),
+                .groups = "drop"
+            ) |>
+            # summarize all HKs per sample
+            group_by(across(
+                c("Sample",  any_of("Replicate"))
+            )) |>
+            summarize(
+                HK_mean = mean(HK_mean, na.rm = TRUE),
+                .groups = "drop"
+            )
+        
+        cq_data() |>
+            filter(Keep) |>
+            left_join(HK_summary) |>
+            mutate(
+                dCq = Cq_no_und - HK_mean,
+            )
+    })
+    
+    dCq_summary <- reactive({
+        req(dCq_data())
+        req(nrow(dCq_data()) > 0)
+        
+        dCq_data() |>
+            group_by(across(
+                c("Sample", "Target", any_of("Replicate"))
+            )) |>
+            summarize(
+                dCq_mean = mean(dCq, na.rm = TRUE),
+                .groups = "drop"
+            )
+    })
+    
 }
+
+
 
 
 
