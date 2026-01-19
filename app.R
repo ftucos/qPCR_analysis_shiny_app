@@ -144,9 +144,8 @@ ui <- page_fillable(
                     title = "Cq Inspection",
                     open = TRUE,
                     width = 380,
-                    
                     selectInput(
-                        "target_select",
+                        "ct_target_select",
                         "Select Target",
                         choices = NULL # popolate dinamically
                     ),
@@ -158,10 +157,7 @@ ui <- page_fillable(
                         width = "200px",
                         size = "sm"
                     ),
-                    hr(),
                     br(),
-                    helpText("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."),
-                    br()
                 ),
                 # Main content area
                 card(
@@ -192,7 +188,21 @@ ui <- page_fillable(
                         options = pickerOptions(container = "body", 
                                                 actionsBox = TRUE),
                         width = "100%"
-                    )
+                    ),
+                    hr(),
+                    selectInput(
+                        "dCt_target_select",
+                        "Select Target",
+                        choices = NULL # popolate dinamically
+                    ),
+                    br(),hr(),br()
+                ),
+                # Main content area
+                card(
+                    full_screen = TRUE,
+                    fillable = TRUE,
+                    card_header(textOutput("dCt_plot_title", inline = TRUE)),
+                    plotlyOutput("dCt_plot", height = "100%")
                 )
             )
         ),
@@ -450,7 +460,7 @@ server <- function(input, output, session) {
             unique() |>
             drop_empty()
 
-        updateSelectInput(session, "target_select", choices = targets, selected = targets[1])
+        updateSelectInput(session, "ct_target_select", choices = targets, selected = targets[1])
         
         selected_hk <- targets[is_HK(targets)]
         
@@ -458,21 +468,21 @@ server <- function(input, output, session) {
     })
     
     # -------------------------------------------------------------------------
-    # Output: Plot and plot title
+    # Output: Cq Plot and plot title
     # -------------------------------------------------------------------------
     
     output$ct_plot_title <- renderText({
-        req(input$target_select)
-        paste("Cq Values for", input$target_select)
+        req(input$ct_target_select)
+        paste("Cq Values for", input$ct_target_select)
     })
     
     output$ct_plot <- renderPlotly({
         df <- cq_data()
         req(df, nrow(df) > 0)
-        req(input$target_select)
+        req(input$ct_target_select)
         
         df_target <- df |>
-            filter(Target == input$target_select) |>
+            filter(Target == input$ct_target_select) |>
             mutate(Keep_label = ifelse(Keep, "Included", "Excluded"))
         
         df_summary_target <- df_target |>
@@ -544,7 +554,7 @@ server <- function(input, output, session) {
         ggplotly(p, tooltip = "text", source = "ct_plot") |>
             event_register("plotly_click") |>
             fix_plotly_legend()
-        })
+    })
     
     # -------------------------------------------------------------------------
     # Observer: Handle click-to-exclude
@@ -576,7 +586,8 @@ server <- function(input, output, session) {
         req(length(input$hk_genes) > 0)
         
         HK_summary <- cq_data() |>
-            filter(Target %in% input$hk_genes, Keep) |>
+            filter(Keep,
+                   Target %in% input$hk_genes) |>
             group_by(across(
                 c("Sample", "Target", any_of("Replicate"))
                 )) |>
@@ -595,7 +606,8 @@ server <- function(input, output, session) {
             )
         
         cq_data() |>
-            filter(Keep) |>
+            filter(Keep,
+                   !Target %in% input$hk_genes) |>
             left_join(HK_summary) |>
             mutate(
                 dCq = Cq_no_und - HK_mean,
@@ -616,10 +628,87 @@ server <- function(input, output, session) {
             )
     })
     
+    # -------------------------------------------------------------------------
+    # Output: dCq Plot and plot title
+    # -------------------------------------------------------------------------
+    observeEvent(dCq_data(), {
+        req(dCq_data(), nrow(dCq_data()) > 0)
+        
+        non_hk_genes <- dCq_data()$Target |> unique() |> drop_empty()
+        
+        updateSelectInput(session, "dCt_target_select", choices = non_hk_genes, selected = non_hk_genes[1])
+    })
+    
+    output$dCt_plot_title <- renderText({
+        req(input$dCt_target_select)
+        paste("ΔCq Values for", input$dCt_target_select)
+    })
+    
+    output$dCt_plot <- renderPlotly({
+        df <- dCq_data()
+        df_summary <- dCq_summary()
+        req(df, nrow(df) > 0)
+        req(df_summary, nrow(df_summary) > 0)
+        req(input$dCt_target_select)
+        
+        df_target <- df |>
+            filter(Target == input$dCt_target_select)
+        
+        df_summary_target <- df_summary |>
+            filter(Target == input$dCt_target_select)
+        
+        # force a minumum of y-axis range of 3 units
+        y_limits <- get_y_limits(df_target$dCq, min_range = 3)
+        
+        p <- ggplot(df_target,
+                    aes(x = Sample, y = -dCq,
+                        # label on hoover
+                        text = paste0(
+                            Sample, 
+                            ifelse("Replicate" %in% names(df_target),
+                                   paste0(" (", Replicate, ")"),
+                                   ""
+                            ), "\n",
+                            "Target: ", Target, "\n",
+                            "ΔCq: ", round(dCq, 2)
+                        )
+                    )) +
+            geom_quasirandom(
+                color = secondary_color(),
+            ) +
+            # add mean/median points
+            geom_point(data = df_summary_target, 
+                       aes(x = Sample, y = -dCq_mean,
+                           shape = "Mean"),
+                       inherit.aes = F,
+                       size = 4, color = accent_color()
+            ) +
+            scale_shape_manual(
+                values = 4,
+                name = ""
+            ) +
+            labs(
+                x = "Sample",
+                y = "-ΔCq",
+                title = NULL
+            ) +
+            scale_y_continuous(expand = c(0.1)) +
+            theme_minimal(base_size = 14) +
+            theme(
+                legend.position = "bottom",
+                panel.grid.minor = element_blank(),
+                axis.text.x = element_text(angle = 45, hjust = 1)
+            )
+        
+        # facet by replicate if present
+        if ("Replicate" %in% names(df)) {
+            p <- p + facet_wrap(~ Replicate)
+        }
+        
+        ggplotly(p, tooltip = "text") |>
+            fix_plotly_legend()
+    })
 }
-
-
-
 
 
 # =============================================================================
