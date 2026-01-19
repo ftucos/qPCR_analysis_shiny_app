@@ -61,13 +61,12 @@ ui <- page_fillable(
         # ---------------------------------------------------------------------
         nav_panel(
             title = "Input Data",
-            layout_sidebar(
-                fillable = T,
-                height = "100%",
+            page_sidebar(
+                fillable = TRUE,
                 sidebar = sidebar(
                     title = "Sample Controls",
                     open = TRUE,
-                    width = 380,
+                    width = "380px",
                     prettySwitch(
                         "include_replicates",
                         label = "Include biological replicates column",
@@ -113,12 +112,12 @@ ui <- page_fillable(
         # ---------------------------------------------------------------------
         nav_panel(
             title = "Cq",
-            fillable = T,
-            layout_sidebar(
+            page_sidebar(
+                fillable = TRUE,
                 sidebar = sidebar(
                     title = "Cq Inspection",
                     open = TRUE,
-                    width = 380,
+                    width = "380px",
                     selectInput(
                         "ct_target_select",
                         "Select Target",
@@ -141,12 +140,12 @@ ui <- page_fillable(
         # ---------------------------------------------------------------------
         nav_panel(
             title = "ΔCq",
-            fillable = TRUE,
-            layout_sidebar(
+            page_sidebar(
+                fillable = TRUE,
                 sidebar = sidebar(
                     title = "ΔCq Settings",
                     open = TRUE,
-                    width = 380,
+                    width = "380px",
                     h5("HK genes"),
                     pickerInput(
                         inputId = "hk_genes",
@@ -239,7 +238,9 @@ ui <- page_fillable(
         # ---------------------------------------------------------------------
         nav_panel(
             title = "Results",
-            layout_sidebar()
+            page_sidebar(
+                fillable = TRUE,
+            )
         )
     )
 )
