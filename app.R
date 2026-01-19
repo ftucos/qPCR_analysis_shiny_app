@@ -10,6 +10,7 @@ library(rhandsontable)
 library(plotly)
 library(ggbeeswarm)
 library(scales)
+library(bsicons)
 
 # =============================================================================
 # Example Data
@@ -66,10 +67,12 @@ ui <- page_fillable(
                 height: 100% !important;
             }
             
-            /* Style for excluded samples */
-            .sample-excluded {
-                opacity: 0.5;
-                text-decoration: line-through;
+            /* Bootstrap tooltip box */
+            .tooltip .tooltip-inner{
+              max-width: 380px;    
+              text-align: justify;
+              text-justify: inter-word;
+              white-space: normal; 
             }
         "))
     ),
@@ -149,14 +152,6 @@ ui <- page_fillable(
                         "Select Target",
                         choices = NULL # popolate dinamically
                     ),
-                    radioGroupButtons(
-                        inputId = "aggr_function",
-                        label = "Summarize by:",
-                        choices = c("Mean" = "mean", "Median" = "median"),
-                        justified = TRUE,
-                        width = "200px",
-                        size = "sm"
-                    ),
                     br(),
                 ),
                 # Main content area
@@ -197,32 +192,64 @@ ui <- page_fillable(
                         "Select Target",
                         choices = NULL # popolate dinamically
                     ),
-                    prettySwitch(
-                        "dCq_stats",
-                        label = "Show descriptive statistics",
-                        fill  = TRUE, status = "primary",
-                        value = FALSE
-                    ),
-                    conditionalPanel(
-                        condition = "input.dCq_stats === true",
-
-                        radioGroupButtons(
-                            inputId = "dCq_stat_type",
-                            label = "Summarize by:",
-                            choices = c("SD", "SEM"),
-                            justified = TRUE,
-                            width = "120px",
-                            size = "sm"
-                        ),
-                        
+                    div(
+                        #style = "display: flex; gap: 5px",
+                        class = "d-flex justify-content-start",
                         prettySwitch(
-                            "dCq_pool_hk_var",
-                            label = "Pool HK variance",
+                            "dCq_stats",
+                            label = "Show descriptive statistics",
                             fill  = TRUE, status = "primary",
-                            value = TRUE
+                            value = FALSE
                         ),
+                        tooltip(
+                            bs_icon("info-circle"),
+                            "Technical replicates: SD (and SEM) here are shown for QC only (assay/measurement precision).
+                            They should not be used for statistical testing or to infer biological variability.",
+                            placement = "right",
+                            
+                        )
                     ),
                     
+                    conditionalPanel(
+                        condition = "input.dCq_stats === true",
+                        div(
+                            #style = "display: flex; gap: 5px",
+                            class = "d-flex justify-content-start",
+                            radioGroupButtons(
+                                inputId = "dCq_stat_type",
+                                label = "Summarize by:",
+                                choices = c("SD", "SEM"),
+                                justified = TRUE,
+                                width = "120px",
+                                size = "sm"
+                            ),
+                            tooltip(
+                                bs_icon("info-circle"),
+                                "For technical replicates, the preferred display is the individual points only (no SD/SEM) to avoid confusion with biological variability.
+                                If an error bar is shown, SD is more common because it reflects the spread/precision of the assay; SEM reflects precision of the mean (SD/√n) and shrinks with n.",
+                                placement = "right"
+                            )
+                        ),
+                        
+                        div(
+                            style = "display: flex; gap: 5px",
+                            class = "d-flex justify-content-start",
+                            prettySwitch(
+                                "dCq_propagate_hk_var",
+                                label = "Propagate HK variance",
+                                fill  = TRUE, status = "primary",
+                                value = TRUE
+                            ),
+                            tooltip(
+                                bs_icon("info-circle"),
+                                "Default: variability is computed using both Target and HK technical replicate variation (HK variation is pooled across different HK and propagated into ΔCq).
+                                This is more faithful to the measurement process.
+                                “Target-only” stats are offered for reproducibility with common practice, not because they’re more correct, just simpler to calculate.",
+                                placement = "right"
+                            )
+                        ),
+                        
+                    ),
                     br()
                 ),
                 # Main content area
@@ -519,8 +546,7 @@ server <- function(input, output, session) {
                 c("Sample", "Target", any_of("Replicate"))
             )) |>
             summarize(
-                mean   = mean(Cq_no_und, na.rm = TRUE),
-                median = median(Cq_no_und, na.rm = TRUE),
+                mean   = mean(Cq_no_und, na.rm = TRUE)
             )
         
         # force a minumum of y-axis range of 3 units
@@ -552,8 +578,8 @@ server <- function(input, output, session) {
             ) +
             # add mean/median points
             geom_point(data = df_summary_target, 
-                       aes(x = Sample, y = .data[[input$aggr_function]],
-                           shape = str_to_title(input$aggr_function)),
+                       aes(x = Sample, y = mean,
+                           shape = "Mean"),
                        inherit.aes = F,
                        size = 4, color = accent_color()
                        ) +
@@ -724,7 +750,7 @@ server <- function(input, output, session) {
             geom_quasirandom(
                 color = secondary_color(),
             ) +
-            # add mean/median points
+            # add mean points
             geom_point(data = df_summary_target, 
                        aes(x = Sample, y = -dCq_mean,
                            shape = "Mean"),
