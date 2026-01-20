@@ -567,6 +567,7 @@ server <- function(input, output, session) {
                 y = "Cq",
                 title = NULL
             ) +
+            coord_cartesian(ylim = y_limits) +
             scale_y_continuous(expand = c(0.1)) +
             theme_minimal(base_size = 14) +
             theme(
