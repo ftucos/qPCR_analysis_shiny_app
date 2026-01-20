@@ -33,7 +33,7 @@ example_data <- data.frame(
 
 
 # helper functions ==========================================
-drop_empty <- function(x) {x[!is.na(x) & nzchar(trimws(x))]}
+drop_empty <- function(x) {x[!is.na(x) & nzchar(str_trim(x))]}
 
 source("R/parse_Cq.R")
 source("R/get_y_limits.R")
@@ -372,11 +372,15 @@ server <- function(input, output, session) {
         # 1. validate Cq values --------------------
         current_data <- hot_to_r(input$raw_data)
         
-        original_cq <- current_data$Cq |> as.character() |> trimws() |> replace_na("")
+        original_cq <- current_data$Cq |> as.character() |> str_trim() |> replace_na("") |>
+            # ignore trailing 0 in decimals
+            str_remove("(?<=[0-9]\\.[0-9]{0,10})0+$")
+
         parsed_cq <- parse_Cq(original_cq) |> replace_na("")
         
         # Find values that changed
         changed_mask <- original_cq != parsed_cq
+        
         conversions <- map2_chr(original_cq[changed_mask], parsed_cq[changed_mask],
                                 ~ paste0(.x, " → ", .y)) |>
                                 unique()
