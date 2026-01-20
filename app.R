@@ -11,6 +11,7 @@ library(plotly)
 library(ggbeeswarm)
 library(scales)
 library(bsicons)
+library(glue)
 
 # =============================================================================
 # Example Data
@@ -530,16 +531,12 @@ server <- function(input, output, session) {
                     aes(x = Sample, y = Cq_no_und,
                         alpha = Keep_label,
                         # label on hoover
-                        text = paste0(
-                            Sample, 
-                            ifelse("Replicate" %in% names(df_target),
-                                    paste0(" (", Replicate, ")"),
-                                    ""
-                            ), "\n",
-                            "Target: ", Target, "\n",
-                            "Cq: ", round(Cq_no_und, 2),
-                            ifelse(Keep, "", " (excluded)")
-                            ),
+                        text = glue(
+                            "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
+                            Target: {Target}
+                            Cq: {round(Cq_no_und, 2)}
+                            {ifelse(Keep, '', ' (excluded)')}"
+                        ),
                         key = Key
                         )) +
             geom_quasirandom(
@@ -552,6 +549,11 @@ server <- function(input, output, session) {
             # add mean/median points
             geom_point(data = df_summary_target, 
                        aes(x = Sample, y = mean,
+                           text = glue(
+                            "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
+                            Target: {Target}
+                            Mean Cq: {round(mean, 2)}"
+                           ),
                            shape = "Mean"),
                        inherit.aes = F,
                        size = 4, color = accent_color()
