@@ -950,5 +950,3 @@ server <- function(input, output, session) {
 # =============================================================================
 
 shinyApp(ui = ui, server = server)
-
-# TODO: report -dCq instead of dCq 
