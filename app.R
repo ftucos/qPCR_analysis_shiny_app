@@ -466,7 +466,7 @@ server <- function(input, output, session) {
             filter(Include) |>
             # update and reorder sample name
             mutate(Sample = factor(New_Label,
-                                   levels = samples_metadata$New_Label)) |>
+                                   levels = unique(samples_metadata$New_Label))) |>
             select(-New_Label, -Include) |>
             arrange(Sample) |>
             mutate(Cq = parse_Cq(Cq) |> as.numeric(),
