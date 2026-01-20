@@ -580,7 +580,7 @@ server <- function(input, output, session) {
                 title = NULL
             ) +
             coord_cartesian(ylim = y_limits) +
-            scale_y_continuous(expand = c(0.1)) +
+            scale_y_continuous(expand = expansion(mult = 0.05, add = 0)) +
             theme_minimal(base_size = 14) +
             theme(
                 legend.position = "bottom",
@@ -913,7 +913,7 @@ server <- function(input, output, session) {
                 y = y_label,
                 title = NULL
             ) +
-            scale_y_continuous(expand = c(0.1)) +
+            scale_y_continuous(expand = expansion(mult = 0.05, add = 0)) +
             theme_minimal(base_size = 14) +
             theme(
                 legend.position = "bottom",
@@ -954,3 +954,5 @@ server <- function(input, output, session) {
 # =============================================================================
 
 shinyApp(ui = ui, server = server)
+
+
