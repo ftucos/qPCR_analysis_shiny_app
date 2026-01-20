@@ -885,7 +885,7 @@ server <- function(input, output, session) {
             aes(x = Sample, y = sign*.data[[y_value]],
                 # label on hoover
                 text = glue(
-                    "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')', ''))}
+                    "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
                     Target: {Target}
                     {y_label}: {round(sign*.data[[y_value]], 2)}"
                 )
