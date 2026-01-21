@@ -958,4 +958,5 @@ server <- function(input, output, session) {
 
 shinyApp(ui = ui, server = server)
 
+# TODO: handle no detected sample
 # TODO: color undetected
