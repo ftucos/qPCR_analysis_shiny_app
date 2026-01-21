@@ -39,6 +39,7 @@ source("R/parse_Cq.R")
 source("R/get_y_limits.R")
 source("R/fix_plotly_legend.R")
 source("R/is_HK.R")
+source("R/handle_undetected_stats.R")
 
 # =============================================================================
 # UI Definition
@@ -483,7 +484,8 @@ server <- function(input, output, session) {
             select(-New_Label, -Include) |>
             arrange(Sample) |>
             mutate(Cq = parse_Cq(Cq) |> as.numeric(),
-                   Cq_no_und = ifelse(Cq == Inf, NA, Cq)) |>
+                   #Cq_no_und = ifelse(Cq == Inf, NA, Cq)
+                   ) |>
         # mark excluded points
             mutate(
                 Keep = !Key %in% values$excluded_point_keys
@@ -532,21 +534,21 @@ server <- function(input, output, session) {
                 c("Sample", "Target", any_of("Replicate"))
             )) |>
             summarize(
-                mean   = mean(Cq_no_und, na.rm = TRUE)
+                mean = mean_handle_inf(Cq)
             )
         
         # force a minumum of y-axis range of 3 units
-        y_limits <- get_y_limits(df_target$Cq_no_und, min_range = 3)
+        y_limits <- get_y_limits(df_target$Cq, min_range = 3)
         
         
         p <- ggplot(df_target,
-                    aes(x = Sample, y = Cq_no_und,
+                    aes(x = Sample, y = Cq,
                         alpha = Keep_label,
                         # label on hoover
                         text = glue(
                             "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
                             Target: {Target}
-                            Cq: {round(Cq_no_und, 2)}
+                            Cq: {round(Cq, 2)}
                             {ifelse(Keep, '', ' (excluded)')}"
                         ),
                         key = Key
@@ -580,7 +582,8 @@ server <- function(input, output, session) {
                 title = NULL
             ) +
             coord_cartesian(ylim = y_limits) +
-            scale_y_continuous(expand = expansion(mult = 0.05, add = 0)) +
+            scale_y_continuous(expand = expansion(mult = 0.05, add = 0),
+                               oob = scales::squish_infinite) +
             theme_minimal(base_size = 14) +
             theme(
                 legend.position = "bottom",
@@ -636,7 +639,7 @@ server <- function(input, output, session) {
                 )) |>
             # summarize each HK separately
             summarize(
-                HK_mean = mean(Cq_no_und, na.rm = TRUE),
+                HK_mean = mean(Cq, na.rm = TRUE),
                 HK_sd   = sd(Cq, na.rm = TRUE),
                 HK_n    = length(na.omit(Cq)), # sample size for each gene
                 .groups = "drop"
@@ -662,7 +665,7 @@ server <- function(input, output, session) {
                    !Target %in% input$hk_genes) |>
             left_join(HK_summary) |>
             mutate(
-                dCq     = Cq_no_und - HK_mean,
+                dCq     = Cq - HK_mean,
                 exp_dCq = 2^-dCq
             )
     })
@@ -680,18 +683,18 @@ server <- function(input, output, session) {
                 c("Sample", "Target", any_of("Replicate"))
             )) |>
             summarize(
-                Cq_n   = length(na.omit(dCq)),
-                Cq_sd  = sd(Cq_no_und, na.rm = TRUE),
+                Cq_n   = n_valid_Cq(Cq),
+                Cq_sd  = sd_handle_inf(Cq),
                 Cq_se  = Cq_sd/sqrt(Cq_n),
                 
-                dCq_mean = mean(dCq, na.rm = TRUE),
+                dCq_mean = mean_handle_inf(dCq),
                 # propagate SD and SE including HK variance/uncertainty.
                 dCq_sd = ifelse(input$propagate_hk_var, 
                     # propagate HK SD
                     sqrt(Cq_sd^2 + HK_sd_pool^2),
                     # Compute Cq stats without propagating HK variance/uncertainty.
                     # This is statistically inaccurate but common in practice because it’s straightforward to compute.
-                    sd(dCq, na.rm = TRUE)
+                    Cq_sd # the same as sd of deltaCq
                     ),
                 dCq_se = ifelse(input$propagate_hk_var,
                     # propagate HK SE
@@ -787,12 +790,11 @@ server <- function(input, output, session) {
         dCq_rep_summary() |>
             group_by(across(c("Sample", "Target"))) |>
             summarize(
-                dCq_n    = length(na.omit(dCq_mean)),
-                dCq_sd   = sd(dCq_mean), 
+                dCq_n    = n_valid_Cq(dCq_mean),
+                dCq_sd   = sd_handle_inf(dCq_mean), 
                 dCq_se   = dCq_sd/sqrt(dCq_n),
                 # mean of means
-                dCq_mean = mean(dCq_mean, na.rm = TRUE),
-                # TODO check sign
+                dCq_mean = mean_handle_inf(dCq_mean),
                 dCq_sd_low  = dCq_mean - dCq_sd,
                 dCq_sd_high = dCq_mean + dCq_sd,
                 dCq_se_low  = dCq_mean - dCq_se,
@@ -913,7 +915,8 @@ server <- function(input, output, session) {
                 y = y_label,
                 title = NULL
             ) +
-            scale_y_continuous(expand = expansion(mult = 0.05, add = 0)) +
+            scale_y_continuous(expand = expansion(mult = 0.05, add = 0),
+                               oob = scales::squish_infinite) +
             theme_minimal(base_size = 14) +
             theme(
                 legend.position = "bottom",
@@ -955,4 +958,4 @@ server <- function(input, output, session) {
 
 shinyApp(ui = ui, server = server)
 
-
+# TODO: color undetected
