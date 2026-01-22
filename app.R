@@ -122,7 +122,7 @@ ui <- page_fillable(
                     open = TRUE,
                     width = "380px",
                     selectInput(
-                        "ct_target_select",
+                        "select_ct_target",
                         "Select Target",
                         choices = NULL # popolate dinamically
                     ),
@@ -159,7 +159,7 @@ ui <- page_fillable(
                         width = "100%"
                     ),
                     selectInput(
-                        "dCt_target_select",
+                        "select_dCt_target",
                         "Select Target",
                         choices = NULL # popolate dinamically
                     ),
@@ -288,8 +288,8 @@ server <- function(input, output, session) {
         # list of excluded points
         excluded_point_keys = c(),
         
-        last_ct_target_selected = c(),
-        last_targets_available = c()
+        select_ct_targeted = c(),
+        targets_available = c()
     )
 
     
@@ -509,18 +509,18 @@ server <- function(input, output, session) {
             sort()
         
         # if no change in targets, skip update
-        req(!identical(targets, values$last_targets_available))
+        req(!identical(targets, values$targets_available))
         
         # restore previous selection if possible
-        if (values$last_ct_target_selected %in% targets) {
-            selected = values$last_ct_target_selected
+        if (values$select_ct_targeted %in% targets) {
+            selected = values$select_ct_targeted
         } else {
             selected = targets[1]
         }
         
         # cache last list of targets 
-        values$last_targets_available <- targets
-        updateSelectInput(session, "ct_target_select", choices = targets, selected = selected)
+        values$targets_available <- targets
+        updateSelectInput(session, "select_ct_target", choices = targets, selected = selected)
             
         selected_hk <- targets[is_HK(targets)]
         updatePickerInput(session, "hk_genes", choices = targets, selected = selected_hk)
@@ -530,8 +530,8 @@ server <- function(input, output, session) {
     # --------------------------------------------------------------------------
     # OvserveEvent: cache last target selected
     # --------------------------------------------------------------------------
-    observeEvent(input$ct_target_select, {
-        values$last_ct_target_selected <- input$ct_target_select
+    observeEvent(input$select_ct_target, {
+        values$select_ct_targeted <- input$select_ct_target
     })
     
     # -------------------------------------------------------------------------
@@ -539,17 +539,17 @@ server <- function(input, output, session) {
     # -------------------------------------------------------------------------
     
     output$ct_plot_title <- renderText({
-        req(input$ct_target_select)
-        paste("Cq Values for", input$ct_target_select)
+        req(input$select_ct_target)
+        paste("Cq Values for", input$select_ct_target)
     })
     
     output$ct_plot <- renderPlotly({
         df <- cq_data()
         req(df, nrow(df) > 0)
-        req(input$ct_target_select)
+        req(input$select_ct_target)
         
         df_target <- df |>
-            filter(Target == input$ct_target_select) |>
+            filter(Target == input$select_ct_target) |>
             mutate(Keep_label = ifelse(Keep, "Included", "Excluded"),
                    point_type_label = ifelse(Undetected, "Undetected", "Detected"),
                    )
@@ -865,39 +865,39 @@ server <- function(input, output, session) {
         
         non_hk_genes <- dCq_data()$Target |> unique() |> drop_empty()
         
-        updateSelectInput(session, "dCt_target_select", choices = non_hk_genes, selected = non_hk_genes[1])
+        updateSelectInput(session, "select_dCt_target", choices = non_hk_genes, selected = non_hk_genes[1])
     })
     
     output$dCt_plot_title <- renderText({
-        req(input$dCt_target_select)
-        paste("ΔCq Values for", input$dCt_target_select)
+        req(input$select_dCt_target)
+        paste("ΔCq Values for", input$select_dCt_target)
     })
     
     output$dCt_plot <- renderPlotly({
-        req(input$dCt_target_select)
+        req(input$select_dCt_target)
         req(nrow(dCq_data())>0)
         req(nrow(dCq_rep_summary())>0)
         
         if(input$summarize_bio_reps == "split") {
             df_target <- dCq_data() |>
-                filter(Target == input$dCt_target_select) 
+                filter(Target == input$select_dCt_target) 
             
             y_value = input$dCq_metric
             
             df_summary_target <- dCq_rep_summary() |>
-                filter(Target == input$dCt_target_select)
+                filter(Target == input$select_dCt_target)
             
         } else { # plot summarize biological Replicates
             req(n_bio_reps() > 1)
             req(nrow(dCq_summary()) > 0)
             
             df_target <-  dCq_rep_summary() |>
-                filter(Target == input$dCt_target_select)
+                filter(Target == input$select_dCt_target)
             
             y_value <- glue("{input$dCq_metric}_mean")
             
             df_summary_target <- dCq_summary() |>
-                filter(Target == input$dCt_target_select)
+                filter(Target == input$select_dCt_target)
             
             print("this is sd summary target")
             print(head(df_summary_target))
