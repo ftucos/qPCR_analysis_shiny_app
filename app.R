@@ -40,6 +40,7 @@ source("R/get_y_limits.R")
 source("R/fix_plotly_legend.R")
 source("R/is_HK.R")
 source("R/handle_undetected_stats.R")
+source("R/squish_infinite_40.R")
 
 # =============================================================================
 # UI Definition
@@ -484,11 +485,11 @@ server <- function(input, output, session) {
             select(-New_Label, -Include) |>
             arrange(Sample) |>
             mutate(Cq = parse_Cq(Cq) |> as.numeric(),
-                   #Cq_no_und = ifelse(Cq == Inf, NA, Cq)
                    ) |>
         # mark excluded points
             mutate(
-                Keep = !Key %in% values$excluded_point_keys
+                Keep = !Key %in% values$excluded_point_keys,
+                Undetected = !is.finite(Cq)
             )
     })
     
@@ -526,7 +527,11 @@ server <- function(input, output, session) {
         
         df_target <- df |>
             filter(Target == input$ct_target_select) |>
-            mutate(Keep_label = ifelse(Keep, "Included", "Excluded"))
+            mutate(Keep_label = ifelse(Keep, "Included", "Excluded"),
+                   point_type_label = ifelse(Undetected, "Undetected", "Detected"),
+                   )
+        
+        n_samples <- df_target$Sample |> unique() |> length()
         
         df_summary_target <- df_target |>
             filter(Keep) |>
@@ -534,16 +539,19 @@ server <- function(input, output, session) {
                 c("Sample", "Target", any_of("Replicate"))
             )) |>
             summarize(
-                mean = mean_handle_inf(Cq)
+                mean = mean_handle_inf(Cq),
+                point_type_label = "Mean",
+                Keep_label  = NA # initialize empty keep_label to avoid duplication of the legend in ggplotly
             )
         
         # force a minumum of y-axis range of 3 units
         y_limits <- get_y_limits(df_target$Cq, min_range = 3)
         
-        
         p <- ggplot(df_target,
                     aes(x = Sample, y = Cq,
                         alpha = Keep_label,
+                        color = point_type_label,
+                        shape = point_type_label,
                         # label on hoover
                         text = glue(
                             "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
@@ -553,14 +561,10 @@ server <- function(input, output, session) {
                         ),
                         key = Key
                         )) +
-            geom_quasirandom(
-                color = secondary_color(),
-            ) +
-            scale_alpha_manual(
-                values = c("Included" = 1, "Excluded" = 0.3),
-                name = "",
-            ) +
-            # add mean/median points
+            annotate("rect", xmin = 0.5, xmax = n_samples+0.5, ymin = 35, ymax = 40, alpha = 0.3, fill = "#C03A2B") +
+            geom_hline(yintercept = 35, linetype = "dashed", color = "#C03A2B") +
+            geom_hline(yintercept = 35, linetype = "dashed", color = "#C03A2B") +
+            geom_quasirandom() +
             geom_point(data = df_summary_target, 
                        aes(x = Sample, y = mean,
                            text = glue(
@@ -568,13 +572,24 @@ server <- function(input, output, session) {
                             Target: {Target}
                             Mean Cq: {round(mean, 2)}"
                            ),
-                           shape = "Mean"),
+                           shape = point_type_label,
+                           color = point_type_label,
+                           alpha = Keep_label),
                        inherit.aes = F,
-                       size = 4, color = accent_color()
+                       size = 4
                        ) +
             scale_shape_manual(
-                values = 4,
-                name = ""
+                values = c("Detected" = 16, "Undetected" = 1,  "Mean" = 4),
+                name = "",
+            ) +
+            scale_color_manual(
+                values = c("Detected" = secondary_color(), "Undetected" = "#C03A2B", "Mean" = accent_color()),
+                name = "",
+            ) +
+            scale_alpha_manual(
+                values = c("Included" = 1, "Excluded" = 0.3),
+                na.value = 1,
+                name = "",
             ) +
             labs(
                 x = "Sample",
@@ -583,7 +598,9 @@ server <- function(input, output, session) {
             ) +
             coord_cartesian(ylim = y_limits) +
             scale_y_continuous(expand = expansion(mult = 0.05, add = 0),
-                               oob = scales::squish_infinite) +
+                               # add extra distance to squish to separate from other points
+                               oob = squish_infinite_40) +
+            scale_x_discrete(expand = 0) +
             theme_minimal(base_size = 14) +
             theme(
                 legend.position = "bottom",
@@ -718,7 +735,9 @@ server <- function(input, output, session) {
                 exp_dCq_sd_high = 2^-(dCq_mean - dCq_sd),
                 exp_dCq_se_low  = 2^-(dCq_mean + dCq_se),
                 exp_dCq_se_high = 2^-(dCq_mean - dCq_se)
-            )
+            ) |>
+            # mark undetected
+            mutate(Undetected = Cq_n == 0)
     })
     
     # -------------------------------------------------------------------------
@@ -809,7 +828,9 @@ server <- function(input, output, session) {
                 exp_dCq_sd_high = 2^-(dCq_mean - dCq_sd),
                 exp_dCq_se_low  = 2^-(dCq_mean + dCq_se),
                 exp_dCq_se_high = 2^-(dCq_mean - dCq_se)
-            )
+            )  |>
+            # mark undetected
+            mutate(Undetected = dCq_n == 0)
 
     })
     
@@ -959,5 +980,4 @@ server <- function(input, output, session) {
 
 shinyApp(ui = ui, server = server)
 
-# TODO: handle no detected sample
-# TODO: color undetected
+# TODO: handle no detected in any sample
