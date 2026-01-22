@@ -286,7 +286,10 @@ server <- function(input, output, session) {
         ),
         
         # list of excluded points
-        excluded_point_keys = c()
+        excluded_point_keys = c(),
+        
+        last_ct_target_selected = c(),
+        last_targets_available = c()
     )
 
     
@@ -502,13 +505,33 @@ server <- function(input, output, session) {
         
         targets <- cq_data()$Target |>
             unique() |>
-            drop_empty()
-
-        updateSelectInput(session, "ct_target_select", choices = targets, selected = targets[1])
+            drop_empty() |>
+            sort()
         
+        # if no change in targets, skip update
+        req(!identical(targets, values$last_targets_available))
+        
+        # restore previous selection if possible
+        if (values$last_ct_target_selected %in% targets) {
+            selected = values$last_ct_target_selected
+        } else {
+            selected = targets[1]
+        }
+        
+        # cache last list of targets 
+        values$last_targets_available <- targets
+        updateSelectInput(session, "ct_target_select", choices = targets, selected = selected)
+            
         selected_hk <- targets[is_HK(targets)]
-        
         updatePickerInput(session, "hk_genes", choices = targets, selected = selected_hk)
+        
+    })
+    
+    # --------------------------------------------------------------------------
+    # OvserveEvent: cache last target selected
+    # --------------------------------------------------------------------------
+    observeEvent(input$ct_target_select, {
+        values$last_ct_target_selected <- input$ct_target_select
     })
     
     # -------------------------------------------------------------------------
@@ -978,5 +1001,3 @@ server <- function(input, output, session) {
 # =============================================================================
 
 shinyApp(ui = ui, server = server)
-
-# TODO: handle no detected in any sample
