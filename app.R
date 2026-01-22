@@ -40,7 +40,7 @@ source("R/get_y_limits.R")
 source("R/fix_plotly_legend.R")
 source("R/is_HK.R")
 source("R/handle_undetected_stats.R")
-source("R/squish_infinite_40.R")
+source("R/squish_infinite_to_val.R")
 
 # =============================================================================
 # UI Definition
@@ -585,7 +585,7 @@ server <- function(input, output, session) {
                         key = Key
                         )) +
             annotate("rect", xmin = 0.5, xmax = n_samples+0.5, ymin = 35, ymax = 40, alpha = 0.2, fill = "#C03A2B") +
-            geom_beeswarm(method = "center") +
+            geom_beeswarm(method = "center", preserve.data.axis=TRUE) +
             geom_point(data = df_summary_target, 
                        aes(x = Sample, y = mean,
                            text = glue(
@@ -619,9 +619,9 @@ server <- function(input, output, session) {
             ) +
             coord_cartesian(ylim = y_limits) +
             scale_y_continuous(expand = expansion(mult = 0.05, add = 0),
-                               labels = function(x) ifelse(x == 40, "40+", x),  # label 40+ for undetected
+                               labels = function(x) ifelse(x == 40, "≥40", x),  # label 40+ for undetected
                                # add extra distance to squish to separate from other points
-                               oob = squish_infinite_40) +
+                               oob = squish_infinite_to_val) +
             scale_x_discrete(expand = 0) +
             theme_minimal(base_size = 14) +
             theme(
@@ -899,8 +899,6 @@ server <- function(input, output, session) {
             df_summary_target <- dCq_summary() |>
                 filter(Target == input$select_dCt_target)
             
-            print("this is sd summary target")
-            print(head(df_summary_target))
         }
 
         y_label = case_match(input$dCq_metric,
@@ -927,33 +925,96 @@ server <- function(input, output, session) {
             error_bar_label <- glue("{str_to_upper(input$dCq_stat_type)}: ({round(df_summary_target[[error_bar_low]], 2)}; {round(df_summary_target[[error_bar_high]], 2)})")
         }
         
-        p <- ggplot(df_target,
-            aes(x = Sample, y = sign*.data[[y_value]],
-                # label on hoover
-                text = glue(
-                    "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
-                    Target: {Target}
-                    {y_label}: {round(sign*.data[[y_value]], 2)}"
-                )
-            )) +
-            geom_beeswarm(color = secondary_color(),
-                          method = "center") +
+        # compute plot y limits -----------------------------------------------
+        values = c(df_target[[input$dCq_metric]])
+        
+        if(input$dCq_stat_type != "none") {
+            values <- values |> 
+                append(c(
+                    df_summary_target |> pull(error_bar_low), # null if not present
+                    df_summary_target |> pull(error_bar_high)
+                ))
+        }
+        
+        # drop NA
+        values[!is.na(values)]
+        if (input$dCq_metric == "dCq") {
+            
+            finite_values <- values[is.finite(values)]
+            
+            if(all(!is.finite(values))) {
+                # all undetected
+                y_min <- -40
+                y_max <- -34
+                y_min_label <- glue("≤{y_min}") 
+
+            } else if (any(!is.finite(values))) {
+                # some undetected
+                y_min <- floor(min(-finite_values) - 2)
+                y_max <- max(-finite_values)
+                y_min_label <- glue("≤{y_min}") 
+            } else {
+                # no undetected
+                y_min <- floor(min(-values))
+                y_max <- ceiling(max(-values))
+                y_min_label <- glue("{y_min}")
+            }
+            
+        } else { # 2^-dCq
+            # allways start at 0
+            y_min <- 0
+            
+            if(all(values == 0)) {
+                # all undetected
+                y_max <- 4
+            } else {
+                # no undetected
+                y_max <- max(values)
+            }
+        }
+        
+        # partial function to handle oob:
+        squish_infinite_to_n40 <- partial(squish_infinite_to_val, to_value = abs(y_min))
+        
+        # plot -------------------
+        
+        p <- df_target |>
+            mutate(point_type_label = ifelse(Undetected, "Undetected", "Detected")) |>
+            ggplot(
+                aes(x = Sample, y = sign*.data[[y_value]],
+                    color = point_type_label,
+                    shape = point_type_label,
+                    # label on hoover
+                    text = glue(
+                        "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
+                        Target: {Target}
+                        {y_label}: {round(sign*.data[[y_value]], 2)}"
+                    )
+                )) +
+            geom_beeswarm(method = "center", preserve.data.axis=TRUE) +
             # add mean points
-            geom_point(data = df_summary_target,
+            geom_point(data = df_summary_target |>
+                           mutate(point_type_label = "Mean"),
                    aes(x = Sample, y = sign*.data[[y_summary_value]],
+                       shape = point_type_label,
+                       color = point_type_label,
                        text = glue(
                             "{Sample}
                             Target: {Target}
                             Mean {y_label}: {round(sign*.data[[y_summary_value]], 2)}
                             {error_bar_label}"
                                    ),
-                       shape = "Mean"),
+                       ),
                    inherit.aes = F,
-                   size = 4, color = accent_color()
+                   size = 4
             ) +
             scale_shape_manual(
-                values = 4,
-                name = ""
+                values = c("Detected" = 16, "Undetected" = 1,  "Mean" = 4),
+                name = "",
+            ) +
+            scale_color_manual(
+                values = c("Detected" = secondary_color(), "Undetected" = "#C03A2B", "Mean" = accent_color()),
+                name = "",
             ) +
             labs(
                 x = "Sample",
@@ -961,7 +1022,9 @@ server <- function(input, output, session) {
                 title = NULL
             ) +
             scale_y_continuous(expand = expansion(mult = 0.05, add = 0),
-                               oob = scales::squish_infinite) +
+                               limits = c(y_min, y_max),
+                               labels = function(x) ifelse(x == y_min, y_min_label, x),
+                               oob = squish_infinite_to_n40) +
             theme_minimal(base_size = 14) +
             theme(
                 legend.position = "bottom",
