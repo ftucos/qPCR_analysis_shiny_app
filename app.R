@@ -561,9 +561,7 @@ server <- function(input, output, session) {
                         ),
                         key = Key
                         )) +
-            annotate("rect", xmin = 0.5, xmax = n_samples+0.5, ymin = 35, ymax = 40, alpha = 0.3, fill = "#C03A2B") +
-            geom_hline(yintercept = 35, linetype = "dashed", color = "#C03A2B") +
-            geom_hline(yintercept = 35, linetype = "dashed", color = "#C03A2B") +
+            annotate("rect", xmin = 0.5, xmax = n_samples+0.5, ymin = 35, ymax = 40, alpha = 0.2, fill = "#C03A2B") +
             geom_quasirandom() +
             geom_point(data = df_summary_target, 
                        aes(x = Sample, y = mean,
@@ -598,6 +596,7 @@ server <- function(input, output, session) {
             ) +
             coord_cartesian(ylim = y_limits) +
             scale_y_continuous(expand = expansion(mult = 0.05, add = 0),
+                               labels = function(x) ifelse(x == 40, "40+", x),  # label 40+ for undetected
                                # add extra distance to squish to separate from other points
                                oob = squish_infinite_40) +
             scale_x_discrete(expand = 0) +

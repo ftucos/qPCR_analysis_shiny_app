@@ -2,14 +2,13 @@ get_y_limits <- function(x, min_range = 3, margin = c(0, 0), undetected_value = 
     # remove NA
     x <- x[!is.na(x)]
     
-    # return 999 if all values are not detected
-    if (all(!is.finite(x))) {
-        return(c(999, 999))
-    }
-    
-    
     undetected_present <- any(!is.finite(x))
     
+    # return fixed range if all values are undetected
+    if (all(!is.finite(x))) {
+        return(c(34, 40))
+    }
+
     # remove infinite values
     x <- x[is.finite(x)]
     
