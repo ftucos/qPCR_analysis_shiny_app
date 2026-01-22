@@ -606,9 +606,10 @@ server <- function(input, output, session) {
     # -------------------------------------------------------------------------
     
     observeEvent(event_data("plotly_click", source = "ct_plot"), {
-        req(output$ct_plot)
         click <- event_data("plotly_click", source = "ct_plot")
         req(click)
+        # ignore click on summary points (no key column)
+        req("key" %in% names(click))
         
         clicked_key <- click$key
         
