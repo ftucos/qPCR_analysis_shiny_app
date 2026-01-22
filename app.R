@@ -585,7 +585,7 @@ server <- function(input, output, session) {
                         key = Key
                         )) +
             annotate("rect", xmin = 0.5, xmax = n_samples+0.5, ymin = 35, ymax = 40, alpha = 0.2, fill = "#C03A2B") +
-            geom_quasirandom() +
+            geom_beeswarm(method = "center") +
             geom_point(data = df_summary_target, 
                        aes(x = Sample, y = mean,
                            text = glue(
@@ -936,7 +936,8 @@ server <- function(input, output, session) {
                     {y_label}: {round(sign*.data[[y_value]], 2)}"
                 )
             )) +
-            geom_quasirandom(color = secondary_color()) +
+            geom_beeswarm(color = secondary_color(),
+                          method = "center") +
             # add mean points
             geom_point(data = df_summary_target,
                    aes(x = Sample, y = sign*.data[[y_summary_value]],
@@ -979,7 +980,7 @@ server <- function(input, output, session) {
                         ymax = sign*.data[[error_bar_high]]
                     ),
                     inherit.aes = F,
-                    width = 0.2,
+                    width = 0.4,
                     color = accent_color()
                 )
         }
