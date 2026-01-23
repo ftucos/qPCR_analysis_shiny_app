@@ -5,3 +5,4 @@ squish_infinite_to_val <- function (x, range = c(0, 1), to_value = 40)
         x[x == Inf] <- to_value
         x
     }
+

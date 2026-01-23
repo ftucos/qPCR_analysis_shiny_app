@@ -203,7 +203,7 @@ ui <- page_fillable(
                             )
                         )
                     ),
-
+                    
                     
                     
                     conditionalPanel(
@@ -291,7 +291,7 @@ server <- function(input, output, session) {
         select_ct_targeted = c(),
         targets_available = c()
     )
-
+    
     
     # -------------------------------------------------------------------------
     # Observer: Toggle biological replicates column
@@ -343,14 +343,14 @@ server <- function(input, output, session) {
         # reset the lsit of excluded points
         values$excluded_point_keys <- c()
     })
-
+    
     # -------------------------------------------------------------------------
     # Output: Raw data table
     # -------------------------------------------------------------------------
     
     output$raw_data <- renderRHandsontable({
         req(values$cached_raw_data)
-
+        
         rhandsontable(
             values$cached_raw_data,
             rowHeaders = TRUE,
@@ -373,14 +373,14 @@ server <- function(input, output, session) {
     # -------------------------------------------------------------------------
     
     observeEvent(input$raw_data, {
-
+        
         # 1. validate Cq values --------------------
         current_data <- hot_to_r(input$raw_data)
         
         original_cq <- current_data$Cq |> as.character() |> str_trim() |> replace_na("") |>
             # ignore trailing 0 in decimals
             str_remove("(?<=[0-9]\\.[0-9]{0,10})0+$")
-
+        
         parsed_cq <- parse_Cq(original_cq) |> replace_na("")
         
         # Find values that changed
@@ -388,7 +388,7 @@ server <- function(input, output, session) {
         
         conversions <- map2_chr(original_cq[changed_mask], parsed_cq[changed_mask],
                                 ~ paste0(.x, " → ", .y)) |>
-                                unique()
+            unique()
         
         # Update parsed Cq values
         current_data$Cq <- parsed_cq
@@ -408,7 +408,7 @@ server <- function(input, output, session) {
                 footer = modalButton("OK")
             ))
         }
-
+        
         # 2. cache last state of samples_tab ------------------------------
         values$cached_samples_tab <- hot_to_r(input$samples_tab)
         
@@ -461,9 +461,9 @@ server <- function(input, output, session) {
             hot_col("New_Label", type = "text") |>
             hot_col("Include", type = "checkbox") |>
             hot_cols(columnSorting = FALSE)
-            
+        
     })
-
+    
     
     
     # -------------------------------------------------------------------------
@@ -473,7 +473,7 @@ server <- function(input, output, session) {
     cq_data <- reactive({
         req(hot_to_r(input$raw_data))
         req(nrow(hot_to_r(input$samples_tab)) > 0)
-
+        
         samples_metadata <- hot_to_r(input$samples_tab)
         
         hot_to_r(input$raw_data) |>
@@ -488,8 +488,8 @@ server <- function(input, output, session) {
             select(-New_Label, -Include) |>
             arrange(Sample) |>
             mutate(Cq = parse_Cq(Cq) |> as.numeric(),
-                   ) |>
-        # mark excluded points
+            ) |>
+            # mark excluded points
             mutate(
                 Keep = !Key %in% values$excluded_point_keys,
                 Undetected = !is.finite(Cq)
@@ -499,7 +499,7 @@ server <- function(input, output, session) {
     # -------------------------------------------------------------------------
     # Observer: Update target selector choices
     # -------------------------------------------------------------------------
-
+    
     observe({
         req(cq_data())
         
@@ -521,7 +521,7 @@ server <- function(input, output, session) {
         # cache last list of targets 
         values$targets_available <- targets
         updateSelectInput(session, "select_ct_target", choices = targets, selected = selected)
-            
+        
         selected_hk <- targets[is_HK(targets)]
         updatePickerInput(session, "hk_genes", choices = targets, selected = selected_hk)
         
@@ -552,7 +552,7 @@ server <- function(input, output, session) {
             filter(Target == input$select_ct_target) |>
             mutate(Keep_label = ifelse(Keep, "Included", "Excluded"),
                    point_type_label = ifelse(Undetected, "Undetected", "Detected"),
-                   )
+            )
         
         n_samples <- df_target$Sample |> unique() |> length()
         
@@ -568,7 +568,7 @@ server <- function(input, output, session) {
             )
         
         # force a minumum of y-axis range of 3 units
-        y_limits <- get_y_limits(df_target$Cq, min_range = 3)
+        y_limits <- get_Cq_y_limits(df_target$Cq, min_range = 3)
         
         p <- ggplot(df_target,
                     aes(x = Sample, y = Cq,
@@ -583,13 +583,13 @@ server <- function(input, output, session) {
                             {ifelse(Keep, '', ' (excluded)')}"
                         ),
                         key = Key
-                        )) +
+                    )) +
             annotate("rect", xmin = 0.5, xmax = n_samples+0.5, ymin = 35, ymax = 40, alpha = 0.2, fill = "#C03A2B") +
-            geom_beeswarm(method = "center", preserve.data.axis=TRUE) +
+            geom_beeswarm(method = "compactswarm", preserve.data.axis=TRUE) +
             geom_point(data = df_summary_target, 
                        aes(x = Sample, y = mean,
                            text = glue(
-                            "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
+                               "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
                             Target: {Target}
                             Mean Cq: {round(mean, 2)}"
                            ),
@@ -598,7 +598,7 @@ server <- function(input, output, session) {
                            alpha = Keep_label),
                        inherit.aes = F,
                        size = 4
-                       ) +
+            ) +
             scale_shape_manual(
                 values = c("Detected" = 16, "Undetected" = 1,  "Mean" = 4),
                 name = "",
@@ -676,7 +676,7 @@ server <- function(input, output, session) {
                    Target %in% input$hk_genes) |>
             group_by(across(
                 c("Sample", "Target", any_of("Replicate"))
-                )) |>
+            )) |>
             # summarize each HK separately
             summarize(
                 HK_mean = mean(Cq, na.rm = TRUE),
@@ -730,18 +730,18 @@ server <- function(input, output, session) {
                 dCq_mean = mean_handle_inf(dCq),
                 # propagate SD and SE including HK variance/uncertainty.
                 dCq_sd = ifelse(input$propagate_hk_var, 
-                    # propagate HK SD
-                    sqrt(Cq_sd^2 + HK_sd_pool^2),
-                    # Compute Cq stats without propagating HK variance/uncertainty.
-                    # This is statistically inaccurate but common in practice because it’s straightforward to compute.
-                    Cq_sd # the same as sd of deltaCq
-                    ),
+                                # propagate HK SD
+                                sqrt(Cq_sd^2 + HK_sd_pool^2),
+                                # Compute Cq stats without propagating HK variance/uncertainty.
+                                # This is statistically inaccurate but common in practice because it’s straightforward to compute.
+                                Cq_sd # the same as sd of deltaCq
+                ),
                 dCq_se = ifelse(input$propagate_hk_var,
-                    # propagate HK SE
-                    sqrt(Cq_se^2 + HK_se_pooled^2),
-                    # Compute Cq stats without propagating HK variance/uncertainty.
-                    # This is statistically inaccurate but common in practice because it’s straightforward to compute.
-                    dCq_sd/sqrt(Cq_n)
+                                # propagate HK SE
+                                sqrt(Cq_se^2 + HK_se_pooled^2),
+                                # Compute Cq stats without propagating HK variance/uncertainty.
+                                # This is statistically inaccurate but common in practice because it’s straightforward to compute.
+                                dCq_sd/sqrt(Cq_n)
                 ),
                 # TODO check direction
                 dCq_sd_low  = dCq_mean - dCq_sd,
@@ -853,7 +853,7 @@ server <- function(input, output, session) {
             )  |>
             # mark undetected
             mutate(Undetected = dCq_n == 0)
-
+        
     })
     
     
@@ -875,6 +875,8 @@ server <- function(input, output, session) {
     
     output$dCt_plot <- renderPlotly({
         req(input$select_dCt_target)
+        req(input$dCq_stat_type)
+        req(input$dCq_metric)
         req(nrow(dCq_data())>0)
         req(nrow(dCq_rep_summary())>0)
         
@@ -900,7 +902,7 @@ server <- function(input, output, session) {
                 filter(Target == input$select_dCt_target)
             
         }
-
+        
         y_label = case_match(input$dCq_metric,
                              "dCq"     ~ "-ΔCq",
                              "exp_dCq" ~ "2^-ΔCq"
@@ -926,55 +928,17 @@ server <- function(input, output, session) {
         }
         
         # compute plot y limits -----------------------------------------------
-        values = c(df_target[[input$dCq_metric]])
-        
-        if(input$dCq_stat_type != "none") {
-            values <- values |> 
-                append(c(
-                    df_summary_target |> pull(error_bar_low), # null if not present
-                    df_summary_target |> pull(error_bar_high)
-                ))
-        }
-        
-        # drop NA
-        values[!is.na(values)]
-        if (input$dCq_metric == "dCq") {
-            
-            finite_values <- values[is.finite(values)]
-            
-            if(all(!is.finite(values))) {
-                # all undetected
-                y_min <- -40
-                y_max <- -34
-                y_min_label <- glue("≤{y_min}") 
+        y_limits <- get_dCq_y_limits(df_target, df_summary_target,
+                                     stat_type = input$dCq_stat_type,
+                                     metric = input$dCq_metric)
 
-            } else if (any(!is.finite(values))) {
-                # some undetected
-                y_min <- floor(min(-finite_values) - 2)
-                y_max <- max(-finite_values)
-                y_min_label <- glue("≤{y_min}") 
-            } else {
-                # no undetected
-                y_min <- floor(min(-values))
-                y_max <- ceiling(max(-values))
-                y_min_label <- glue("{y_min}")
-            }
-            
-        } else { # 2^-dCq
-            # allways start at 0
-            y_min <- 0
-            
-            if(all(values == 0)) {
-                # all undetected
-                y_max <- 4
-            } else {
-                # no undetected
-                y_max <- max(values)
-            }
+        values <- df_target[[input$dCq_metric]]
+        undetected_present <- any(!is.finite(values[!is.na(values)]))
+        if (input$dCq_metric == "dCq" & undetected_present) {
+            y_min_label <- glue("≤{y_limits[1]}") 
+        } else {
+            y_min_label <- glue("{y_limits[1]}")
         }
-        
-        # partial function to handle oob:
-        squish_infinite_to_n40 <- partial(squish_infinite_to_val, to_value = abs(y_min))
         
         # plot -------------------
         
@@ -991,22 +955,22 @@ server <- function(input, output, session) {
                         {y_label}: {round(sign*.data[[y_value]], 2)}"
                     )
                 )) +
-            geom_beeswarm(method = "center", preserve.data.axis=TRUE) +
+            geom_beeswarm(method = "compactswarm", preserve.data.axis=TRUE) +
             # add mean points
             geom_point(data = df_summary_target |>
                            mutate(point_type_label = "Mean"),
-                   aes(x = Sample, y = sign*.data[[y_summary_value]],
-                       shape = point_type_label,
-                       color = point_type_label,
-                       text = glue(
-                            "{Sample}
+                       aes(x = Sample, y = sign*.data[[y_summary_value]],
+                           shape = point_type_label,
+                           color = point_type_label,
+                           text = glue(
+                               "{Sample}
                             Target: {Target}
                             Mean {y_label}: {round(sign*.data[[y_summary_value]], 2)}
                             {error_bar_label}"
-                                   ),
+                           ),
                        ),
-                   inherit.aes = F,
-                   size = 4
+                       inherit.aes = F,
+                       size = 4
             ) +
             scale_shape_manual(
                 values = c("Detected" = 16, "Undetected" = 1,  "Mean" = 4),
@@ -1022,9 +986,10 @@ server <- function(input, output, session) {
                 title = NULL
             ) +
             scale_y_continuous(expand = expansion(mult = 0.05, add = 0),
-                               limits = c(y_min, y_max),
-                               labels = function(x) ifelse(x == y_min, y_min_label, x),
-                               oob = squish_infinite_to_n40) +
+                               labels = function(x) ifelse(x == y_limits[1], y_min_label, x),
+                               oob = function(x, range) squish_infinite_to_val(x, range, to_value = abs(y_limits[1]))
+                               ) +
+            coord_cartesian(ylim = y_limits) +
             theme_minimal(base_size = 14) +
             theme(
                 legend.position = "bottom",
