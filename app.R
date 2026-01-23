@@ -870,7 +870,13 @@ server <- function(input, output, session) {
     
     output$dCt_plot_title <- renderText({
         req(input$select_dCt_target)
-        paste("ΔCq Values for", input$select_dCt_target)
+        req(input$dCq_metric)
+        y_label = case_match(input$dCq_metric,
+                             "dCq"     ~ "-ΔCq",
+                             "exp_dCq" ~ "2^-ΔCq"
+        )
+
+        paste(y_label, " Values for", input$select_dCt_target)
     })
     
     output$dCt_plot <- renderPlotly({
