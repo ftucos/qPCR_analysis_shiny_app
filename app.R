@@ -947,37 +947,65 @@ server <- function(input, output, session) {
         }
         
         # plot -------------------
-        
-        p <- df_target |>
+        # add text label for hover label
+        df_target <- df_target |>
             mutate(point_type_label = ifelse(Undetected, "Undetected", "Detected")) |>
-            ggplot(
-                aes(x = Sample, y = sign*.data[[y_value]],
-                    color = point_type_label,
-                    shape = point_type_label,
-                    # label on hoover
-                    text = glue(
-                        "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
-                        Target: {Target}
-                        {y_label}: {round(sign*.data[[y_value]], 2)}"
-                    )
-                )) +
-            geom_beeswarm(method = "compactswarm", preserve.data.axis=TRUE) +
-            # add mean points
-            geom_point(data = df_summary_target |>
-                           mutate(point_type_label = "Mean"),
-                       aes(x = Sample, y = sign*.data[[y_summary_value]],
-                           shape = point_type_label,
-                           color = point_type_label,
-                           text = glue(
-                               "{Sample}
-                            Target: {Target}
-                            Mean {y_label}: {round(sign*.data[[y_summary_value]], 2)}
-                            {error_bar_label}"
+            mutate(text = glue(
+                "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
+                Target: {Target}
+                {y_label}: {round(sign*.data[[y_value]], 2)}"
+            ))
+        
+        df_summary_target <- df_summary_target |>
+            mutate(text = glue(
+                "{Sample}
+                Target: {Target}
+                Mean {y_label}: {round(sign*.data[[y_summary_value]], 2)}
+                {error_bar_label}"
+            ))
+        
+        # don't plot average bar for dCq value (0 has no meaning)
+        if (input$dCq_metric != "dCq") {
+            p <- ggplot() +
+                geom_bar(data = df_summary_target,
+                         aes(x = Sample, y = sign*.data[[y_summary_value]],
+                         text = text),
+                         stat = "identity",
+                         fill = accent_color(),
+                         alpha = 0.5,
+                         width = 0.6
+                )
+        } else {
+            p <- ggplot()
+        }
+        
+        p <- p + 
+            geom_beeswarm(data = df_target,
+                          aes(x = Sample, y = sign*.data[[y_value]],
+                              text = text,
+                              color = point_type_label,
+                              shape = point_type_label
+                              # label on hoover
+                              ),
+                          method = "compactswarm", preserve.data.axis=TRUE)
+        
+        if (input$dCq_metric == "dCq") {
+            p <- p + 
+                # add mean points
+                geom_point(data = df_summary_target |>
+                               mutate(point_type_label = "Mean"),
+                           aes(x = Sample, y = sign*.data[[y_summary_value]],
+                               text = text,
+                               shape = point_type_label,
+                               color = point_type_label
                            ),
-                       ),
-                       inherit.aes = F,
-                       size = 4
-            ) +
+                           inherit.aes = F,
+                           size = 4
+                ) 
+                
+        }
+        
+        p <- p +
             scale_shape_manual(
                 values = c("Detected" = 16, "Undetected" = 1,  "Mean" = 4),
                 name = "",
