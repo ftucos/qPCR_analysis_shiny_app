@@ -33,28 +33,13 @@ get_Cq_y_limits <- function(x, min_range = 3, margin = c(0, 0), undetected_value
 }
 
 
-# for dCq and exp_dCq plots ---------------------------------------------------
-get_dCq_y_limits <- function(df_target, df_summary_target, stat_type = c("none"), metric = c("dCt")) {
-    
-    values = df_target[[metric]]
-    
-    if (stat_type != "none") {
-        error_bar_high  <- glue("{metric}_{stat_type}_high") 
-        error_bar_low   <- glue("{metric}_{stat_type}_low")
-    }
-    
-    if(stat_type != "none") {
-        values <- values |> 
-            append(c(
-                df_summary_target |> pull(error_bar_low),
-                df_summary_target |> pull(error_bar_high)
-            ))
-    }
+# for (d)dCq and exp_(d)dCq plots ---------------------------------------------------
+get_y_limits <- function(values, metric = c("dCq")) {
     
     # drop NA
     values <- values[!is.na(values)]
     
-    if (metric == "dCq") {
+    if (metric %in% c("dCq", "ddCq")) {
         
         finite_values <- values[is.finite(values)]
         
@@ -73,11 +58,10 @@ get_dCq_y_limits <- function(df_target, df_summary_target, stat_type = c("none")
             y_max <- ceiling(max(-values))
         }
         
-    } else { # 2^-dCq
+    } else { # 2^-d(d)Cq
         # allways start at 0
         y_min <- 0
         
-        print(values)
         if(all(values == 0)) {
             # all undetected
             y_max <- 4

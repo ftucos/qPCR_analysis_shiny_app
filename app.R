@@ -142,11 +142,11 @@ ui <- page_fillable(
         # Panel 3: dCq analysis
         # ---------------------------------------------------------------------
         nav_panel(
-            title = "ΔCq",
+            title = "Results",
             page_sidebar(
                 fillable = TRUE,
                 sidebar = sidebar(
-                    title = "ΔCq Settings",
+                    title = "Settings",
                     open = TRUE,
                     width = "380px",
                     pickerInput(
@@ -159,7 +159,7 @@ ui <- page_fillable(
                         width = "100%"
                     ),
                     selectInput(
-                        "select_dCt_target",
+                        "select_out_target",
                         "Select Target",
                         choices = NULL # popolate dinamically
                     ),
@@ -173,10 +173,11 @@ ui <- page_fillable(
                         size = "sm"
                     ),
                     radioGroupButtons(
-                        inputId = "dCq_metric",
+                        inputId = "out_metric",
                         label = "Plot",
-                        choices = c("-ΔCq" = "dCq", "2^-ΔCq" = "exp_dCq"),
+                        choices = c("-ΔCq" = "dCq", "2^-ΔCq" = "exp_dCq", "-ΔΔCq" = "ddCq", "2^-ΔΔCq" = "exp_ddCq"),
                         justified = TRUE,
+                        disabled = c("ddCq", "exp_ddCq"), # enable dinamically
                         width = "100%",
                         size = "sm"
                     ),
@@ -184,7 +185,7 @@ ui <- page_fillable(
                         #style = "display: flex; gap: 5px",
                         class = "d-flex justify-content-start",
                         radioGroupButtons(
-                            inputId = "dCq_stat_type",
+                            inputId = "stat_type",
                             label = "Error Bars:",
                             choices = c("SEM" = "se", "SD" = "sd", "None" = "none"),
                             selected = "none", # updated dinamically
@@ -193,7 +194,7 @@ ui <- page_fillable(
                             size = "sm"
                         ),
                         conditionalPanel(
-                            condition = "input.summarize_bio_reps == 'split' && input.dCq_stat_type != 'none'",
+                            condition = "input.summarize_bio_reps == 'split' && input.stat_type != 'none'",
                             tooltip(
                                 bs_icon("exclamation-triangle"),
                                 "For technical replicates error bars are shown as QC only.
@@ -207,21 +208,21 @@ ui <- page_fillable(
                     
                     
                     conditionalPanel(
-                        condition = "input.summarize_bio_reps == 'split' && input.dCq_stat_type != 'none'",
+                        condition = "input.summarize_bio_reps == 'split' && input.stat_type != 'none'",
                         div(
                             style = "display: flex; gap: 5px",
                             class = "d-flex justify-content-start",
                             prettySwitch(
-                                "propagate_hk_var",
-                                label = "Propagate HK variance",
+                                "propagate_var",
+                                label = "Propagate variance",
                                 fill  = TRUE, status = "primary",
                                 value = TRUE
                             ),
                             tooltip(
                                 bs_icon("info-circle"),
-                                "Default: variability is computed using both Target and HK technical replicate variation (HK variation is pooled across different HK and propagated into ΔCq).
+                                "Default: variance is computed from Target + HK technical replicates (HK pooled and propagated into ΔCq). For ΔΔCq, control variance is propagated to all samples (not ignored).
                                 This is more faithful to the measurement process.
-                                “Target-only” stats are offered for reproducibility with common practice, not because they’re more correct, just simpler to calculate.",
+                                Stats without propagation of variance are offered for reproducibility with common practice. Note that this is not the correct approach though",
                             )
                         ),
                         
@@ -232,8 +233,8 @@ ui <- page_fillable(
                 card(
                     full_screen = TRUE,
                     fillable = TRUE,
-                    card_header(textOutput("dCt_plot_title", inline = TRUE)),
-                    plotlyOutput("dCt_plot", height = "100%")
+                    card_header(textOutput("res_plot_title", inline = TRUE)),
+                    plotlyOutput("res_plot", height = "100%")
                 )
             )
         ),
@@ -729,21 +730,20 @@ server <- function(input, output, session) {
                 
                 dCq_mean = mean_handle_inf(dCq),
                 # propagate SD and SE including HK variance/uncertainty.
-                dCq_sd = ifelse(input$propagate_hk_var, 
+                dCq_sd = ifelse(input$propagate_var, 
                                 # propagate HK SD
                                 sqrt(Cq_sd^2 + HK_sd_pool^2),
                                 # Compute Cq stats without propagating HK variance/uncertainty.
                                 # This is statistically inaccurate but common in practice because it’s straightforward to compute.
                                 Cq_sd # the same as sd of deltaCq
                 ),
-                dCq_se = ifelse(input$propagate_hk_var,
+                dCq_se = ifelse(input$propagate_var,
                                 # propagate HK SE
                                 sqrt(Cq_se^2 + HK_se_pooled^2),
                                 # Compute Cq stats without propagating HK variance/uncertainty.
                                 # This is statistically inaccurate but common in practice because it’s straightforward to compute.
                                 dCq_sd/sqrt(Cq_n)
                 ),
-                # TODO check direction
                 dCq_sd_low  = dCq_mean - dCq_sd,
                 dCq_sd_high = dCq_mean + dCq_sd,
                 dCq_se_low  = dCq_mean - dCq_se,
@@ -809,13 +809,13 @@ server <- function(input, output, session) {
         if(input$summarize_bio_reps == "aggregate") {
             updateRadioGroupButtons(
                 session,
-                "dCq_stat_type",
+                "stat_type",
                 selected = "se"
             )
         } else {
             updateRadioGroupButtons(
                 session,
-                "dCq_stat_type",
+                "stat_type",
                 selected = "none"
             )
         }
@@ -856,6 +856,130 @@ server <- function(input, output, session) {
         
     })
     
+    # --------------------------------------------------------------------------
+    # derived reactive: average dCq for reference sample
+    # --------------------------------------------------------------------------
+    
+    reference_sample_dCq <- reactive({
+        req(nrow(dCq_rep_summary())>0)
+        
+        samples_metadata <- hot_to_r(input$samples_tab)
+        # at least 2 distinct samples
+        req(samples_metadata$New_Label |> unique() |> length() >= 2)
+        
+        reference_sample <- samples_metadata |> first() |> pull("New_Label") 
+        
+        dCq_rep_summary() |>
+            filter(Sample == reference_sample) |>
+            select(Target, any_of("Replicate"),
+                   ref_dCq_mean = dCq_mean,
+                   ref_dCq_sd = dCq_sd,
+                   ref_dCq_se = dCq_se)
+
+    })
+    
+    # --------------------------------------------------------------------------
+    # Observe: allow ddCq calculation only if reference sample for slected target is valid
+    # --------------------------------------------------------------------------
+    
+    observeEvent(input$select_out_target, {
+        req(input$select_out_target)
+        req(input$select_out_target)
+        
+        current_target_ref_dCq <- reference_sample_dCq() |>
+            filter(Target == input$select_out_target) |>
+            pull("ref_dCq_mean")
+            
+        if(!all(is.finite(current_target_ref_dCq))) {
+            updateRadioGroupButtons(
+                session,
+                "out_metric",
+                disabledChoices = c("ddCq", "exp_ddCq")
+            )
+        } else {
+            updateRadioGroupButtons(
+                session,
+                "out_metric",
+                disabledChoices = character(0)
+            )
+        }
+    })
+    
+    #---------------------------------------------------------------------------
+    # Reactive: ddCq data points
+    #---------------------------------------------------------------------------
+    
+    ddCq_data <- reactive ({
+        req(reference_sample_dCq())
+        
+        dCq_data() |>
+            left_join(reference_sample_dCq()) |>
+            mutate(
+                ddCq     = dCq - ref_dCq_mean,
+                exp_ddCq = 2^-ddCq
+            )
+    })
+    
+    ddCq_rep_summary <- reactive ({
+        req(reference_sample_dCq())
+        
+        dCq_rep_summary() |>
+            left_join(reference_sample_dCq()) |>
+            mutate(
+                ddCq_mean     = dCq_mean - ref_dCq_mean,
+                exp_ddCq_mean = 2^-ddCq_mean,
+                
+                ddCq_sd = ifelse(input$propagate_var, 
+                                # propagate control SD
+                                sqrt(dCq_sd^2 + ref_dCq_sd^2),
+                                dCq_sd # the same as sd of ddCq
+                ),
+                ddCq_se = ifelse(input$propagate_var,
+                                sqrt(dCq_se^2 + ref_dCq_se^2),
+                                dCq_se
+                ),
+                ddCq_sd_low  = ddCq_mean - ddCq_sd,
+                ddCq_sd_high = ddCq_mean + ddCq_sd,
+                ddCq_se_low  = ddCq_mean - ddCq_se,
+                ddCq_se_high = ddCq_mean + ddCq_se,
+
+                exp_ddCq_mean    = 2^-(ddCq_mean),
+                exp_ddCq_sd_low  = 2^-(ddCq_mean + ddCq_sd),
+                exp_ddCq_sd_high = 2^-(ddCq_mean - ddCq_sd),
+                exp_ddCq_se_low  = 2^-(ddCq_mean + ddCq_se),
+                exp_ddCq_se_high = 2^-(ddCq_mean - ddCq_se)
+            )
+    })
+    
+    ddCq_summary <- reactive({
+        req(ddCq_rep_summary())
+        req(n_bio_reps() > 1)
+        
+        ddCq_rep_summary() |>
+            group_by(across(c("Sample", "Target"))) |>
+            summarize(
+                ddCq_n    = n_valid_Cq(ddCq_mean),
+                ddCq_sd   = sd_handle_inf(ddCq_mean), 
+                ddCq_se   = ddCq_sd/sqrt(ddCq_n),
+                # mean of means
+                ddCq_mean = mean_handle_inf(ddCq_mean),
+                ddCq_sd_low  = ddCq_mean - ddCq_sd,
+                ddCq_sd_high = ddCq_mean + ddCq_sd,
+                ddCq_se_low  = ddCq_mean - ddCq_se,
+                ddCq_se_high = ddCq_mean + ddCq_se,
+                .groups = "drop"
+            ) |>
+            # compute exponentiated values
+            mutate(
+                exp_ddCq_mean    = 2^-(ddCq_mean),
+                exp_ddCq_sd_low  = 2^-(ddCq_mean + ddCq_sd),
+                exp_ddCq_sd_high = 2^-(ddCq_mean - ddCq_sd),
+                exp_ddCq_se_low  = 2^-(ddCq_mean + ddCq_se),
+                exp_ddCq_se_high = 2^-(ddCq_mean - ddCq_se)
+            )  |>
+            # mark undetected
+            mutate(Undetected = ddCq_n == 0)
+    })
     
     # -------------------------------------------------------------------------
     # Output: dCq Plot and plot title
@@ -865,82 +989,118 @@ server <- function(input, output, session) {
         
         non_hk_genes <- dCq_data()$Target |> unique() |> drop_empty()
         
-        updateSelectInput(session, "select_dCt_target", choices = non_hk_genes, selected = non_hk_genes[1])
+        updateSelectInput(session, "select_out_target", choices = non_hk_genes, selected = non_hk_genes[1])
     })
     
-    output$dCt_plot_title <- renderText({
-        req(input$select_dCt_target)
-        req(input$dCq_metric)
-        y_label = case_match(input$dCq_metric,
+    
+    
+    output$res_plot_title <- renderText({
+        req(input$select_out_target)
+        req(input$out_metric)
+        y_label = case_match(input$out_metric,
                              "dCq"     ~ "-ΔCq",
-                             "exp_dCq" ~ "2^-ΔCq"
+                             "exp_dCq" ~ "2^-ΔCq",
+                             "ddCq"    ~ "ΔΔCq",
+                             "exp_ddCq" ~ "2^-ΔΔCq",
         )
 
-        paste(y_label, " Values for", input$select_dCt_target)
+        paste(y_label, " Values for", input$select_out_target)
     })
     
-    output$dCt_plot <- renderPlotly({
-        req(input$select_dCt_target)
-        req(input$dCq_stat_type)
-        req(input$dCq_metric)
+    output$res_plot <- renderPlotly({
+        req(input$select_out_target)
+        req(input$stat_type)
+        req(input$out_metric)
         req(nrow(dCq_data())>0)
         req(nrow(dCq_rep_summary())>0)
         
-        if(input$summarize_bio_reps == "split") {
+        if(input$summarize_bio_reps == "split" & input$out_metric %in% c("dCq", "exp_dCq")) {
             df_target <- dCq_data() |>
-                filter(Target == input$select_dCt_target) 
+                filter(Target == input$select_out_target) 
             
-            y_value = input$dCq_metric
+            y_value = input$out_metric
             
             df_summary_target <- dCq_rep_summary() |>
-                filter(Target == input$select_dCt_target)
+                filter(Target == input$select_out_target)
             
-        } else { # plot summarize biological Replicates
+        } else if (input$summarize_bio_reps == "aggregate" & input$out_metric %in% c("dCq", "exp_dCq")) { 
             req(n_bio_reps() > 1)
             req(nrow(dCq_summary()) > 0)
             
             df_target <-  dCq_rep_summary() |>
-                filter(Target == input$select_dCt_target)
+                filter(Target == input$select_out_target)
             
-            y_value <- glue("{input$dCq_metric}_mean")
+            y_value <- glue("{input$out_metric}_mean")
             
             df_summary_target <- dCq_summary() |>
-                filter(Target == input$select_dCt_target)
+                filter(Target == input$select_out_target)
+            
+        } else if(input$summarize_bio_reps == "split" & input$out_metric %in% c("ddCq", "exp_ddCq")) {
+            df_target <- ddCq_data() |>
+                filter(Target == input$select_out_target) 
+            
+            y_value = input$out_metric
+            
+            df_summary_target <- ddCq_rep_summary() |>
+                filter(Target == input$select_out_target)
+            
+        } else if (input$summarize_bio_reps == "aggregate" & input$out_metric %in% c("ddCq", "exp_ddCq")) { 
+            req(n_bio_reps() > 1)
+            req(nrow(ddCq_summary()) > 0)
+            
+            df_target <-  ddCq_rep_summary() |>
+                filter(Target == input$select_out_target)
+            
+            y_value <- glue("{input$out_metric}_mean")
+            
+            df_summary_target <- ddCq_summary() |>
+                filter(Target == input$select_out_target)
             
         }
         
-        y_label = case_match(input$dCq_metric,
+        
+        y_label = case_match(input$out_metric,
                              "dCq"     ~ "-ΔCq",
-                             "exp_dCq" ~ "2^-ΔCq"
+                             "exp_dCq" ~ "2^-ΔCq",
+                             "ddCq"     ~ "-ΔΔCq",
+                             "exp_ddCq" ~ "2^-ΔΔCq",
         )
         
         # used to invert sign when plotting -dCt
-        if (input$dCq_metric == "dCq") {
+        if (input$out_metric %in% c("dCq", "ddCq")) {
             sign = -1
         } else {
             sign = 1
         }
         
-        y_summary_value <- glue("{input$dCq_metric}_mean")
+        y_summary_value <- glue("{input$out_metric}_mean")
         
-        if (input$dCq_stat_type == "none") {
+        if (input$stat_type == "none") {
             error_bar_high  <- NULL
             error_bar_low   <- NULL
             error_bar_label <- ""
         } else {
-            error_bar_high  <- glue("{input$dCq_metric}_{input$dCq_stat_type}_high") 
-            error_bar_low   <- glue("{input$dCq_metric}_{input$dCq_stat_type}_low")
-            error_bar_label <- glue("{str_to_upper(input$dCq_stat_type)}: ({round(df_summary_target[[error_bar_low]], 2)}; {round(df_summary_target[[error_bar_high]], 2)})")
+            error_bar_high  <- glue("{input$out_metric}_{input$stat_type}_high") 
+            error_bar_low   <- glue("{input$out_metric}_{input$stat_type}_low")
+            error_bar_label <- glue("{str_to_upper(input$stat_type)}: ({round(df_summary_target[[error_bar_low]], 2)}; {round(df_summary_target[[error_bar_high]], 2)})")
         }
         
         # compute plot y limits -----------------------------------------------
-        y_limits <- get_dCq_y_limits(df_target, df_summary_target,
-                                     stat_type = input$dCq_stat_type,
-                                     metric = input$dCq_metric)
+        values <- df_target[[y_value]]
+        
+        # append Error bars values to compute y limits
+        if (input$stat_type != "none") {
+            values <- values |> 
+                append(c(
+                    df_summary_target |> pull(error_bar_low),
+                    df_summary_target |> pull(error_bar_high)
+                ))
+        }
+        
+        y_limits <- get_y_limits(values, metric = input$out_metric)
 
-        values <- df_target[[input$dCq_metric]]
         undetected_present <- any(!is.finite(values[!is.na(values)]))
-        if (input$dCq_metric == "dCq" & undetected_present) {
+        if (input$out_metric == "dCq" & undetected_present) {
             y_min_label <- glue("≤{y_limits[1]}") 
         } else {
             y_min_label <- glue("{y_limits[1]}")
@@ -964,9 +1124,21 @@ server <- function(input, output, session) {
                 {error_bar_label}"
             ))
         
+        
+        # add reference sample line
+        if (input$out_metric == "exp_ddCq") {
+            p <- ggplot() + 
+                geom_hline(yintercept = 1, linetype = "dashed", color = "gray30")
+        } else if (input$out_metric == "ddCq") {
+            p <- ggplot() + 
+                geom_hline(yintercept = 0, linetype = "dashed", color = "gray30")
+        } else {
+            p <- ggplot()
+        }
+        
         # don't plot average bar for dCq value (0 has no meaning)
-        if (input$dCq_metric != "dCq") {
-            p <- ggplot() +
+        if (input$out_metric != "dCq") {
+            p <- p +
                 geom_bar(data = df_summary_target,
                          aes(x = Sample, y = sign*.data[[y_summary_value]],
                          text = text),
@@ -975,10 +1147,8 @@ server <- function(input, output, session) {
                          alpha = 0.5,
                          width = 0.6
                 )
-        } else {
-            p <- ggplot()
         }
-        
+
         p <- p + 
             geom_beeswarm(data = df_target,
                           aes(x = Sample, y = sign*.data[[y_value]],
@@ -989,7 +1159,7 @@ server <- function(input, output, session) {
                               ),
                           method = "compactswarm", preserve.data.axis=TRUE)
         
-        if (input$dCq_metric == "dCq") {
+        if (input$out_metric == "dCq") {
             p <- p + 
                 # add mean points
                 geom_point(data = df_summary_target |>
@@ -1032,7 +1202,7 @@ server <- function(input, output, session) {
             )
         
         # add error bars if requested
-        if(input$dCq_stat_type != "none") {
+        if(input$stat_type != "none") {
             p <- p +
                 geom_errorbar(
                     data = df_summary_target,
