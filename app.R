@@ -585,7 +585,7 @@ server <- function(input, output, session) {
                         ),
                         key = Key
                     )) +
-            annotate("rect", xmin = 0.5, xmax = n_samples+0.5, ymin = 35, ymax = 40, alpha = 0.2, fill = "#C03A2B") +
+            annotate("rect", xmin = 0.5, xmax = n_samples+0.5, ymin = 35, ymax = 40, alpha = 0.6, fill = "#EBEBEB") +
             geom_beeswarm(method = "compactswarm", preserve.data.axis=TRUE) +
             geom_point(data = df_summary_target, 
                        aes(x = Sample, y = mean,
@@ -1234,3 +1234,4 @@ server <- function(input, output, session) {
 # =============================================================================
 
 shinyApp(ui = ui, server = server)
+# TODO: remove hoover on rectangle
