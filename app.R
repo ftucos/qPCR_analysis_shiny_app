@@ -151,7 +151,7 @@ ui <- page_fillable(
                     width = "380px",
                     pickerInput(
                         inputId = "hk_genes",
-                        label = "Select HK gene(s):", 
+                        label = "Select HK gene(s)", 
                         choices = NULL, # populate dynamicallyLL,
                         multiple = TRUE,
                         options = pickerOptions(container = "body", 
@@ -160,7 +160,7 @@ ui <- page_fillable(
                     ),
                     selectInput(
                         "select_out_target",
-                        "Select Target",
+                        "Select Target to visualize",
                         choices = NULL # popolate dinamically
                     ),
                     hr(),
@@ -227,7 +227,6 @@ ui <- page_fillable(
                         ),
                         
                     ),
-                    br()
                 ),
                 # Main content area
                 card(
@@ -236,16 +235,6 @@ ui <- page_fillable(
                     card_header(textOutput("res_plot_title", inline = TRUE)),
                     plotlyOutput("res_plot", height = "100%")
                 )
-            )
-        ),
-        
-        # ---------------------------------------------------------------------
-        # Panel 4: Results
-        # ---------------------------------------------------------------------
-        nav_panel(
-            title = "Results",
-            page_sidebar(
-                fillable = TRUE,
             )
         )
     )
