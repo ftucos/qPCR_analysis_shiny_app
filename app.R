@@ -225,8 +225,177 @@ ui <- page_fillable(
                                 Stats without propagation of variance are offered for reproducibility with common practice. Note that this is not the correct approach though",
                             )
                         ),
-                        
                     ),
+
+                    # ---------------------------------------------------------
+                    # Statistical Analysis Section (only if n_bio_reps > 1 and n_samples >= 2)
+                    # ---------------------------------------------------------
+                    conditionalPanel(
+                        condition = "output.n_bio_reps >= 2 && output.n_samples >= 2",
+                        hr(),
+                        tags$h6(tags$strong("Statistical Analysis")),
+
+                        # Target metric for statistical testing
+                        radioGroupButtons(
+                            inputId = "stats_metric",
+                            label = "Test on:",
+                            choices = c(
+                                "-ΔCq" = "dCT",
+                                "-ΔΔCq" = "ddCT",
+                                "2^-ΔΔCq" = "exp_ddCT"
+                            ),
+                            selected = "dCT",
+                            justified = TRUE,
+                            width = "100%",
+                            size = "sm"
+                        ),
+
+                        # Warning for exp data
+                        conditionalPanel(
+                            condition = "input.stats_metric == 'exp_ddCT'",
+                            div(
+                                class = "alert alert-warning py-1 px-2 mb-2",
+                                style = "font-size: 0.85em;",
+                                bs_icon("exclamation-triangle"),
+                                "It is recommended to perform statistical analysis on the log space (-ΔCq or -ΔΔCq) values rather than on exponentiated ones for more reliable results."
+                            )
+                        ),
+
+                        # Omnibus test selection (choices update dynamically via pickerInput with optgroups)
+                        div(
+                            class = "d-flex justify-content-start align-items-center mb-2",
+                            pickerInput(
+                                inputId = "stats_test",
+                                label = "Test:",
+                                choices = list(
+                                    "Parametric" = c(
+                                        "ANCOVA" = "ancova",
+                                        "Mixed Effect Model" = "mixed_effect",
+                                        "Pairwise paired t-test" = "pairwise_paired_ttest"
+                                    ),
+                                    "Non-parametric" = c( # "Friedman" = "friedman",
+                                        "Pairwise Wilcoxon" = "pairwise_wilcoxon"
+                                    )
+                                ), # update dinamically
+                                selected = "ancova",
+                                width = "93%",
+                                options = pickerOptions(container = "body")
+                            ),
+
+                            # Tip about test recomendations (shown for dCT with > 2 samples)
+                            conditionalPanel(
+                                condition = "input.stats_metric == 'dCT' && output.n_samples > 2",
+                                tooltip(
+                                    bs_icon("lightbulb"),
+                                    "ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated sample).
+                                    Mixed-effect Model is better when the reference sample is arbitrary across replicates (e.g., comparing expression between different patients or cell lines).
+                                    Other tests are available for completeness but are generally not recommended.",
+                                    placement = "right"
+                                )
+                            ),
+                            # Tip about test recomendations (shown for dCT with exactly 2 samples)
+                            conditionalPanel(
+                                condition = "input.stats_metric == 'dCT' && output.n_samples == 2",
+                                tooltip(
+                                    bs_icon("lightbulb"),
+                                    "ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated vs treated). Paired t-test is better when the reference sample is arbitrary across replicates (e.g. comparing the expression between 2 different tumors or cell lines).",
+                                    placement = "right"
+                                )
+                            )
+                        ),
+
+                        # Pool SD toggle (only shown for pairwise t-test)
+                        conditionalPanel(
+                            condition = "output.show_pool_sd",
+                            prettySwitch(
+                                inputId = "stats_pool_sd",
+                                label = "Pool SD",
+                                fill = TRUE,
+                                status = "primary",
+                                value = TRUE
+                            )
+                        ),
+
+                        # Handle unequal variance toggle (for mixed effect model)
+                        conditionalPanel(
+                            condition = "output.show_unequal_variance_toggle",
+                            div(
+                                class = "d-flex justify-content-start align-items-center",
+                                prettySwitch(
+                                    inputId = "stats_unequal_variance",
+                                    label   = "Handle unequal variance",
+                                    fill    = TRUE,
+                                    status  = "primary",
+                                    value   = FALSE
+                                ),
+                                # Tip shown only for pairwise t-test
+                                conditionalPanel(
+                                    condition = "input.stats_test == 'pairwise_ttest'",
+                                    tooltip(
+                                        bs_icon("info-circle"),
+                                        "When enabled (Welch's t-test), 
+                                        the comparison against the reference sample converges to a one-sample t-test 
+                                        since the reference has zero variance in ΔΔCq.",
+                                        placement = "right"
+                                    )
+                                )
+                            )
+                        ),
+
+                        # Post Hoc comparison type (only shown when > 2 samples)
+                        conditionalPanel(
+                            condition = "output.show_multiple_comparison_type",
+                            radioGroupButtons(
+                                inputId = "stats_comparison",
+                                label = "Compare:",
+                                choices = c(
+                                    "Pairwise" = "pairwise",
+                                    "All vs Control" = "vs_control"
+                                ),
+                                selected = "pairwise",
+                                justified = TRUE,
+                                width = "100%",
+                                size = "sm"
+                            )
+                        ),
+
+                        # Multiple comparison adjustment method
+                        # let chose between Benjamini-Hochberg (FDR), Holm (FWER),  none
+                        conditionalPanel(
+                            condition = "output.show_multiple_comparison_adjust",
+                            radioGroupButtons(
+                                inputId = "stats_multiple_comparison_adjust",
+                                label = "Multiple comparison adjustment method:",
+                                choices = c(
+                                    "Benjamini-Hochberg (FDR)" = "BH",
+                                    "Holm (FWER)" = "holm",
+                                    "None" = "none"
+                                ),
+                                selected = "BH",
+                                justified = TRUE,
+                                width = "100%",
+                                size = "sm",
+                                direction = "vertical"
+                            )
+                        ),
+
+                        # Post-hoc test display (dynamically updated)
+                        conditionalPanel(
+                            condition = "output.show_post_hoc_test",
+                            div(
+                                class = "card bg-light border-0",
+                                div(
+                                    class = "card-body py-2 px-3",
+                                    div(
+                                        class = "d-flex align-items-center gap-2",
+                                        bs_icon("arrow-return-right", class = "text-primary"),
+                                        tags$span(class = "text-muted small", "Post-hoc:"),
+                                        tags$span(class = "fw-semibold", textOutput("stats_posthoc", inline = TRUE))
+                                    )
+                                )
+                            )
+                        )
+                    )
                 ),
                 # Main content area
                 card(
@@ -769,13 +938,37 @@ server <- function(input, output, session) {
         }
         
     })
-    
+
+    # make it available to javascript
+    output$n_bio_reps <- reactive({
+        n_bio_reps()
+    })
+    outputOptions(output, "n_bio_reps", suspendWhenHidden = FALSE)
+
+    # -------------------------------------------------------------------------
+    # Derived Reactive: number of samples
+    # -------------------------------------------------------------------------
+
+    n_samples <- reactive({
+        req(dCq_data())
+        dCq_data() |>
+            pull("Sample") |>
+            unique() |>
+            length()
+    })
+
+    # make it available to javascript
+    output$n_samples <- reactive({
+        n_samples()
+    })
+    outputOptions(output, "n_samples", suspendWhenHidden = FALSE)
+
     # -------------------------------------------------------------------------
     # Observe Event: disable biological replicate summary if only one replicate
     # -------------------------------------------------------------------------
-    
+
     observeEvent(n_bio_reps(), {
-        if(n_bio_reps() > 1) {
+        if (n_bio_reps() > 1) {
             updateRadioGroupButtons(
                 session,
                 "summarize_bio_reps",
@@ -969,9 +1162,217 @@ server <- function(input, output, session) {
             # mark undetected
             mutate(Undetected = ddCq_n == 0)
     })
-    
+
+        # -------------------------------------------------------------------------
+    # Output Flags: Conditional panel visibility for statistical tests
     # -------------------------------------------------------------------------
-    # Output: dCq Plot and plot title
+
+    stats_ui_flags <- reactive({
+        req(input$stats_test)
+
+        # Determine all UI flags based on selected test
+        flags <- switch(input$stats_test,
+            # --- ANCOVA ---
+            "ancova" = list(
+                show_unequal_variance_toggle    = FALSE,
+                show_multiple_comparison_type   = n_samples() > 2,
+                show_pool_sd                    = FALSE,
+                show_multiple_comparison_adjust = FALSE,
+                show_post_hoc_test              = TRUE
+            ),
+
+            # --- Mixed Effect Model ---
+            "mixed_effect" = list(
+                show_unequal_variance_toggle    = TRUE,
+                show_multiple_comparison_type   = TRUE,
+                show_pool_sd                    = FALSE,
+                show_multiple_comparison_adjust = FALSE,
+                show_post_hoc_test              = TRUE
+            ),
+
+            # --- ANOVA ---
+            "anova" = list(
+                show_unequal_variance_toggle    = FALSE,
+                show_multiple_comparison_type   = TRUE,
+                show_pool_sd                    = FALSE,
+                show_multiple_comparison_adjust = FALSE,
+                show_post_hoc_test              = TRUE
+            ),
+
+            # --- Kruskal-Wallis ---
+            "kruskal" = list(
+                show_unequal_variance_toggle    = FALSE,
+                show_multiple_comparison_type   = TRUE,
+                show_pool_sd                    = FALSE,
+                show_multiple_comparison_adjust = isTRUE(input$stats_comparison == "pairwise"),
+                show_post_hoc_test              = TRUE
+            ),
+
+            # --- Pairwise t-test ---
+            "pairwise_ttest" = list(
+                show_unequal_variance_toggle    = !isTRUE(input$stats_pool_sd),
+                show_multiple_comparison_type   = TRUE,
+                show_pool_sd                    = TRUE,
+                show_multiple_comparison_adjust = TRUE,
+                show_post_hoc_test              = FALSE
+            ),
+
+            # --- Pairwise paired t-test ---
+            "pairwise_paired_ttest" = list(
+                show_unequal_variance_toggle    = FALSE,
+                show_multiple_comparison_type   = TRUE,
+                show_pool_sd                    = FALSE,
+                show_multiple_comparison_adjust = TRUE,
+                show_post_hoc_test              = FALSE
+            ),
+
+            # --- Pairwise Wilcoxon (signed-rank) ---
+            "pairwise_wilcoxon" = list(
+                show_unequal_variance_toggle    = FALSE,
+                show_multiple_comparison_type   = TRUE,
+                show_pool_sd                    = FALSE,
+                show_multiple_comparison_adjust = TRUE,
+                show_post_hoc_test              = FALSE
+            ),
+
+            # --- Pairwise Wilcoxon-Mann-Whitney ---
+            "pairwise_mann_whitney" = list(
+                show_unequal_variance_toggle    = FALSE,
+                show_multiple_comparison_type   = FALSE,
+                show_pool_sd                    = FALSE,
+                show_multiple_comparison_adjust = TRUE,
+                show_post_hoc_test              = FALSE
+            ),
+
+            # --- Default fallback ---
+            list(
+                show_unequal_variance_toggle    = FALSE,
+                show_multiple_comparison_type   = FALSE,
+                show_pool_sd                    = FALSE,
+                show_multiple_comparison_adjust = FALSE,
+                show_post_hoc_test              = FALSE
+            )
+        )
+        flags
+    })
+
+    # Expose individual flags as outputs for JavaScript conditional panels
+    output$show_unequal_variance_toggle <- reactive({
+        stats_ui_flags()$show_unequal_variance_toggle
+    })
+    outputOptions(output, "show_unequal_variance_toggle", suspendWhenHidden = FALSE)
+
+    output$show_multiple_comparison_type <- reactive({
+        stats_ui_flags()$show_multiple_comparison_type
+    })
+    outputOptions(output, "show_multiple_comparison_type", suspendWhenHidden = FALSE)
+
+    output$show_pool_sd <- reactive({
+        stats_ui_flags()$show_pool_sd
+    })
+    outputOptions(output, "show_pool_sd", suspendWhenHidden = FALSE)
+
+    output$show_multiple_comparison_adjust <- reactive({
+        stats_ui_flags()$show_multiple_comparison_adjust
+    })
+    outputOptions(output, "show_multiple_comparison_adjust", suspendWhenHidden = FALSE)
+
+    output$show_post_hoc_test <- reactive({
+        stats_ui_flags()$show_post_hoc_test
+    })
+    outputOptions(output, "show_post_hoc_test", suspendWhenHidden = FALSE)
+
+    # -------------------------------------------------------------------------
+    # Observer: Update stats_test choices based on metric and sample count
+    # -------------------------------------------------------------------------
+
+    observeEvent(list(input$stats_metric, n_samples()), {
+        req(input$stats_metric)
+        req(n_samples() >= 2)
+
+        metric <- input$stats_metric
+
+        # Determine available tests and default based on metric and sample count
+        if (n_samples() > 2) {
+            # > 2 samples
+            if (metric == "dCT") {
+                # dCq: comparison across samples accounting for HK variance
+                choices <- list(
+                    "Parametric" = c(
+                        "ANCOVA" = "ancova",
+                        "Mixed Effect Model" = "mixed_effect",
+                        "Pairwise paired t-test" = "pairwise_paired_ttest"
+                    ),
+                    "Non-parametric" = c("Pairwise Wilcoxon" = "pairwise_wilcoxon")
+                )
+                default <- "ancova"
+            } else {
+                # ddCT or exp_ddCT: standard group comparisons
+                choices <- list(
+                    "Parametric" = c(
+                        "ANOVA" = "anova",
+                        "Pairwise t-test" = "pairwise_ttest"
+                    ),
+                    "Non-parametric" = c(
+                        "Kruskal-Wallis" = "kruskal",
+                        "Pairwise Wilcoxon-Mann-Whitney" = "pairwise_mann_whitney"
+                    )
+                )
+                default <- "anova"
+            }
+        } else {
+            # = 2 samples
+            if (metric == "dCT") {
+                choices <- list(
+                    "Parametric" = c(
+                        "ANCOVA" = "ancova",
+                        "Paired t-test" = "pairwise_paired_ttest"
+                    ),
+                    "Non-parametric" = c("Wilcoxon (signed-rank; paired)" = "pairwise_wilcoxon")
+                )
+                default <- "ancova"
+            } else {
+                # ddCT or exp_ddCT
+                choices <- list(
+                    "Parametric" = c("t-test" = "pairwise_ttest"),
+                    "Non-parametric" = c("Wilcoxon-Mann-Whitney" = "pairwise_mann_whitney")
+                )
+                default <- "pairwise_ttest"
+            }
+        }
+
+        updatePickerInput(session, "stats_test", choices = choices, selected = default)
+    })
+
+    # -------------------------------------------------------------------------
+    # Output: Post-hoc test description based on omnibus test and comparison
+    # -------------------------------------------------------------------------
+
+    output$stats_posthoc <- renderText({
+        req(input$stats_test)
+
+        test <- input$stats_test
+        comparison <- input$stats_comparison
+        handle_variance <- isTRUE(input$stats_unequal_variance)
+
+        # Determine post-hoc test based on omnibus and comparison type
+        posthoc <- switch(test,
+            "ancova" = if (comparison == "pairwise") "Tukey HSD" else "Dunnett",
+            "mixed_effect" = if (handle_variance) {
+                if (comparison == "pairwise") "Dunnett T3" else "Tamhane-Dunnett"
+            } else {
+                if (comparison == "pairwise") "Tukey HSD" else "Dunnett"
+            },
+            "anova" = if (comparison == "pairwise") "Tukey HSD" else "Dunnett",
+            "kruskal" = "Dunn's test",
+            ""
+        )
+
+        posthoc
+    })
+
+    # -------------------------------------------------------------------------
+    # Output: Results Plot
     # -------------------------------------------------------------------------
     observeEvent(dCq_data(), {
         req(dCq_data(), nrow(dCq_data()) > 0)
