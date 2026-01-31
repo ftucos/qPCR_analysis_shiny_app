@@ -33,7 +33,9 @@ example_data <- data.frame(
 
 
 # helper functions ==========================================
-drop_empty <- function(x) {x[!is.na(x) & nzchar(str_trim(x))]}
+drop_empty <- function(x) {
+    x[!is.na(x) & nzchar(str_trim(x))]
+}
 
 source("R/parse_Cq.R")
 source("R/get_y_limits.R")
@@ -51,14 +53,13 @@ ui <- page_fillable(
     tags$head(
         tags$link(rel = "stylesheet", type = "text/css", href = "custom.css")
     ),
-    
+
     # Main navigation
     navset_tab(
         id = "main_tabs",
-        
         nav_item(h5("qPCR Analysis Tool")),
         nav_spacer(),
-        
+
         # ---------------------------------------------------------------------
         # Panel 1: Input Data
         # ---------------------------------------------------------------------
@@ -73,14 +74,14 @@ ui <- page_fillable(
                     prettySwitch(
                         "include_replicates",
                         label = "Include biological replicates column",
-                        fill  = TRUE, status = "primary",
+                        fill = TRUE, status = "primary",
                         value = FALSE
                     ),
                     hr(),
                     helpText("Edit 'New Label' to rename samples. Drag the row number to reorder them. Uncheck 'Include' to exclude samples from analysis."),
                     rHandsontableOutput("samples_tab")
                 ),
-                
+
                 # Main content area
                 card(
                     max_height = "500px",
@@ -109,7 +110,7 @@ ui <- page_fillable(
                 )
             )
         ),
-        
+
         # ---------------------------------------------------------------------
         # Panel 2: Cq values inspection and exclusion
         # ---------------------------------------------------------------------
@@ -137,7 +138,7 @@ ui <- page_fillable(
                 )
             )
         ),
-        
+
         # ---------------------------------------------------------------------
         # Panel 3: dCq analysis
         # ---------------------------------------------------------------------
@@ -147,15 +148,17 @@ ui <- page_fillable(
                 fillable = TRUE,
                 sidebar = sidebar(
                     title = "Settings",
-                    open = TRUE,
+                    open  = TRUE,
                     width = "380px",
                     pickerInput(
                         inputId = "hk_genes",
-                        label = "Select HK gene(s)", 
+                        label = "Select HK gene(s)",
                         choices = NULL, # populate dynamicallyLL,
                         multiple = TRUE,
-                        options = pickerOptions(container = "body", 
-                                                actionsBox = TRUE),
+                        options = pickerOptions(
+                            container  = "body",
+                            actionsBox = TRUE
+                        ),
                         width = "100%"
                     ),
                     selectInput(
@@ -165,33 +168,33 @@ ui <- page_fillable(
                     ),
                     hr(),
                     radioGroupButtons(
-                        inputId = "summarize_bio_reps",
-                        label = "Biological Replicates",
-                        choices = c("Plot Individually" = "split", "Aggregate" = "aggregate"),
+                        inputId   = "summarize_bio_reps",
+                        label     = "Biological Replicates",
+                        choices   = c("Plot Individually" = "split", "Aggregate" = "aggregate"),
                         justified = TRUE,
-                        width = "100%",
-                        size = "sm"
+                        width     = "100%",
+                        size      = "sm"
                     ),
                     radioGroupButtons(
-                        inputId = "out_metric",
-                        label = "Plot",
-                        choices = c("-ΔCq" = "dCq", "2^-ΔCq" = "exp_dCq", "-ΔΔCq" = "ddCq", "2^-ΔΔCq" = "exp_ddCq"),
+                        inputId  = "out_metric",
+                        label    = "Plot",
+                        choices  = c("-ΔCq" = "dCq", "2^-ΔCq" = "exp_dCq", "-ΔΔCq" = "ddCq", "2^-ΔΔCq" = "exp_ddCq"),
                         justified = TRUE,
-                        disabled = c("ddCq", "exp_ddCq"), # enable dinamically
-                        width = "100%",
-                        size = "sm"
+                        disabled  = c("ddCq", "exp_ddCq"), # enable dinamically
+                        width     = "100%",
+                        size      = "sm"
                     ),
                     div(
-                        #style = "display: flex; gap: 5px",
-                        class = "d-flex justify-content-start",
+                        # style = "display: flex; gap: 5px",
+                        class = "d-flex justify-content-start align-items-center",
                         radioGroupButtons(
-                            inputId = "stat_type",
-                            label = "Error Bars:",
-                            choices = c("SEM" = "se", "SD" = "sd", "None" = "none"),
-                            selected = "none", # updated dinamically
+                            inputId   = "stat_type",
+                            label     = "Error Bars:",
+                            choices   = c("SEM" = "se", "SD" = "sd", "None" = "none"),
+                            selected  = "none", # updated dinamically
                             justified = TRUE,
-                            width = "180px",
-                            size = "sm"
+                            width     = "180px",
+                            size      = "sm"
                         ),
                         conditionalPanel(
                             condition = "input.summarize_bio_reps == 'split' && input.stat_type != 'none'",
@@ -204,9 +207,6 @@ ui <- page_fillable(
                             )
                         )
                     ),
-                    
-                    
-                    
                     conditionalPanel(
                         condition = "input.summarize_bio_reps == 'split' && input.stat_type != 'none'",
                         div(
@@ -214,9 +214,10 @@ ui <- page_fillable(
                             class = "d-flex justify-content-start",
                             prettySwitch(
                                 "propagate_var",
-                                label = "Propagate variance",
-                                fill  = TRUE, status = "primary",
-                                value = TRUE
+                                label   = "Propagate variance",
+                                fill    = TRUE,
+                                status  = "primary",
+                                value   = TRUE
                             ),
                             tooltip(
                                 bs_icon("info-circle"),
@@ -237,17 +238,17 @@ ui <- page_fillable(
 
                         # Target metric for statistical testing
                         radioGroupButtons(
-                            inputId = "stats_metric",
-                            label = "Test on:",
-                            choices = c(
-                                "-ΔCq" = "dCT",
-                                "-ΔΔCq" = "ddCT",
+                            inputId   = "stats_metric",
+                            label     = "Test on:",
+                            choices   = c(
+                                "-ΔCq"    = "dCT",
+                                "-ΔΔCq"   = "ddCT",
                                 "2^-ΔΔCq" = "exp_ddCT"
                             ),
-                            selected = "dCT",
+                            selected  = "dCT",
                             justified = TRUE,
-                            width = "100%",
-                            size = "sm"
+                            width     = "100%",
+                            size      = "sm"
                         ),
 
                         # Warning for exp data
@@ -265,9 +266,9 @@ ui <- page_fillable(
                         div(
                             class = "d-flex justify-content-start align-items-center mb-2",
                             pickerInput(
-                                inputId = "stats_test",
-                                label = "Test:",
-                                choices = list(
+                                inputId   = "stats_test",
+                                label     = "Test:",
+                                choices   = list(
                                     "Parametric" = c(
                                         "ANCOVA" = "ancova",
                                         "Mixed Effect Model" = "mixed_effect",
@@ -308,10 +309,10 @@ ui <- page_fillable(
                         conditionalPanel(
                             condition = "output.show_pool_sd",
                             prettySwitch(
-                                inputId = "stats_pool_sd",
-                                label = "Pool SD",
-                                fill = TRUE,
-                                status = "primary",
+                                inputId   = "stats_pool_sd",
+                                label     = "Pool SD",
+                                fill      = TRUE,
+                                status    = "primary",
                                 value = TRUE
                             )
                         ),
@@ -346,13 +347,13 @@ ui <- page_fillable(
                         conditionalPanel(
                             condition = "output.show_multiple_comparison_type",
                             radioGroupButtons(
-                                inputId = "stats_comparison",
-                                label = "Compare:",
-                                choices = c(
+                                inputId   = "stats_comparison",
+                                label     = "Compare:",
+                                choices   = c(
                                     "Pairwise" = "pairwise",
                                     "All vs Control" = "vs_control"
                                 ),
-                                selected = "pairwise",
+                                selected  = "pairwise",
                                 justified = TRUE,
                                 width = "100%",
                                 size = "sm"
@@ -364,17 +365,17 @@ ui <- page_fillable(
                         conditionalPanel(
                             condition = "output.show_multiple_comparison_adjust",
                             radioGroupButtons(
-                                inputId = "stats_multiple_comparison_adjust",
-                                label = "Multiple comparison adjustment method:",
-                                choices = c(
+                                inputId   = "stats_multiple_comparison_adjust",
+                                label     = "Multiple comparison adjustment method:",
+                                choices   = c(
                                     "Benjamini-Hochberg (FDR)" = "BH",
                                     "Holm (FWER)" = "holm",
                                     "None" = "none"
                                 ),
-                                selected = "BH",
+                                selected  = "BH",
                                 justified = TRUE,
-                                width = "100%",
-                                size = "sm",
+                                width     = "100%",
+                                size      = "sm",
                                 direction = "vertical"
                             )
                         ),
@@ -414,186 +415,192 @@ ui <- page_fillable(
 # =============================================================================
 
 server <- function(input, output, session) {
-    
     # -------------------------------------------------------------------------
     # Current theme accent color
     # -------------------------------------------------------------------------
     accent_color <- reactive({
         bslib::bs_get_variables(bslib::bs_current_theme(session), "primary")[[1]]
     })
-    
+
     secondary_color <- reactive({
         bslib::bs_get_variables(bslib::bs_current_theme(session), "secondary")[[1]]
     })
-    
+
     # -------------------------------------------------------------------------
-    # Reactive Values
+    # Cache (reactiveValues)
     # -------------------------------------------------------------------------
-    
-    values <- reactiveValues(
-        # cached raw data, required to add/remove replicate column
-        cached_raw_data = empty_raw_data,
-        
-        # Initialize empty sample control table (rename, reorder, exclude)
-        # this has to be used only as cached last state 
+
+    cache <- reactiveValues(
+        # raw data, required to add/remove replicate column
+        raw_data = empty_raw_data,
+
+        # sample control table (rename, reorder, exclude)
         # samples rename, reordering and exclusion should be retrieved from input$samples_tab
-        cached_samples_tab = data.frame(
+        samples_tab = data.frame(
             Sample    = character(),
             New_Label = character(),
             Include   = logical(),
             stringsAsFactors = FALSE
         ),
-        
+
         # list of excluded points
         excluded_point_keys = c(),
-        
-        select_ct_targeted = c(),
-        targets_available = c()
+        select_ct_targeted  = c(),
+        targets_available   = c()
     )
-    
-    
+
+
     # -------------------------------------------------------------------------
     # Observer: Toggle biological replicates column
     # -------------------------------------------------------------------------
-    
+
     observeEvent(input$include_replicates, {
-        if (is.null(input$raw_data)) return()
-        
+        if (is.null(input$raw_data)) {
+            return()
+        }
+
         current_data <- hot_to_r(input$raw_data)
-        
+
         if (input$include_replicates) {
             # add replicate column if missing
             if (!"Replicate" %in% names(current_data)) {
-                values$cached_raw_data <- current_data |>
+                cache$raw_data <- current_data |>
                     mutate(Replicate = "R1")
             }
         } else {
             # drop replicate column if present
-            values$cached_raw_data <- select(current_data, -any_of("Replicate"))
+            cache$raw_data <- select(current_data, -any_of("Replicate"))
         }
     })
-    
+
     # -------------------------------------------------------------------------
     # Observer: Load example data
     # -------------------------------------------------------------------------
-    
+
     observeEvent(input$load_example, {
         data_to_load <- example_data
-        
+
         if (input$include_replicates) {
             data_to_load$Replicate <- rep("R1", nrow(data_to_load))
         }
-        
-        values$cached_raw_data <- data_to_load
+
+        cache$raw_data <- data_to_load
     })
-    
+
     # -------------------------------------------------------------------------
     # Observer: clean data
     # -------------------------------------------------------------------------
-    
+
     observeEvent(input$clear_data, {
-        if(input$include_replicates) {
-            values$cached_raw_data <- empty_raw_data |>
+        if (input$include_replicates) {
+            cache$raw_data <- empty_raw_data |>
                 mutate("Replicate" = character(5))
         } else {
-            values$cached_raw_data <- empty_raw_data 
+            cache$raw_data <- empty_raw_data
         }
-        
+
         # reset the lsit of excluded points
-        values$excluded_point_keys <- c()
+        cache$excluded_point_keys <- c()
     })
-    
+
     # -------------------------------------------------------------------------
     # Output: Raw data table
     # -------------------------------------------------------------------------
-    
+
     output$raw_data <- renderRHandsontable({
-        req(values$cached_raw_data)
-        
+        req(cache$raw_data)
+
         rhandsontable(
-            values$cached_raw_data,
+            cache$raw_data,
             rowHeaders = TRUE,
-            readOnly = FALSE,
+            readOnly    = FALSE,
             contextMenu = TRUE,
-            stretchH = "all",
+            stretchH    = "all",
             renderAllRows = TRUE
         ) |>
             hot_col("Sample", type = "text") |>
             hot_col("Target", type = "text") |>
             hot_col("Cq", type = "text") |> # type = "text" to allow for Undetermined or other labels
             hot_context_menu(allowRowEdit = TRUE, allowColEdit = FALSE)
-        
     })
-    
+
     # -------------------------------------------------------------------------
     # Observer: on raw data edit:
     # 1. cache last `raw_data` and validate Cq values
-    # 2. update `cached_samples_tab` when samples change in raw_data while preserving previous edits 
+    # 2. update `cache$samples_tab` when samples change in raw_data while preserving previous edits
     # -------------------------------------------------------------------------
-    
+
     observeEvent(input$raw_data, {
-        
         # 1. validate Cq values --------------------
         current_data <- hot_to_r(input$raw_data)
-        
-        original_cq <- current_data$Cq |> as.character() |> str_trim() |> replace_na("") |>
+
+        original_cq <- current_data$Cq |>
+            as.character() |>
+            str_trim() |>
+            replace_na("") |>
             # ignore trailing 0 in decimals
             str_remove("(?<=[0-9]\\.[0-9]{0,10})0+$")
-        
+
         parsed_cq <- parse_Cq(original_cq) |> replace_na("")
-        
+
         # Find values that changed
         changed_mask <- original_cq != parsed_cq
-        
-        conversions <- map2_chr(original_cq[changed_mask], parsed_cq[changed_mask],
-                                ~ paste0(.x, " → ", .y)) |>
+
+        conversions <- map2_chr(
+            original_cq[changed_mask], parsed_cq[changed_mask],
+            ~ paste0(.x, " → ", .y)
+        ) |>
             unique()
-        
+
         # Update parsed Cq values
         current_data$Cq <- parsed_cq
-        
+
         # Cache updated raw data
-        values$cached_raw_data <- current_data
-        
+        cache$raw_data <- current_data
+
         # Show warning modal if any conversions happened
         if (length(conversions) > 0) {
             showModal(modalDialog(
                 title = "Cq Values Converted",
                 tags$p("The following conversions were applied:"),
                 tags$ul(
-                    lapply(conversions, function(x) {tags$li(x)})
+                    lapply(conversions, function(x) {
+                        tags$li(x)
+                    })
                 ),
                 easyClose = TRUE,
                 footer = modalButton("OK")
             ))
         }
-        
+
         # 2. cache last state of samples_tab ------------------------------
-        values$cached_samples_tab <- hot_to_r(input$samples_tab)
-        
-        current_samples  <- hot_to_r(input$raw_data)$Sample |> unique() |> drop_empty()
-        
-        previous_samples <- values$cached_samples_tab$Sample
+        cache$samples_tab <- hot_to_r(input$samples_tab)
+
+        current_samples <- hot_to_r(input$raw_data)$Sample |>
+            unique() |>
+            drop_empty()
+
+        previous_samples <- cache$samples_tab$Sample
         new_samples <- setdiff(current_samples, previous_samples)
-        
+
         if (length(current_samples) == 0) {
             # No valid samples, keep empty
-            values$cached_samples_tab <- data.frame(
+            cache$samples_tab <- data.frame(
                 Sample    = character(),
                 New_Label = character(),
                 Include   = logical()
             )
         } else if (length(previous_samples) == 0) {
-            # First time cached_samples_tab update
-            values$cached_samples_tab <- data.frame(
+            # First time samples_tab update
+            cache$samples_tab <- data.frame(
                 Sample    = current_samples,
                 New_Label = current_samples,
-                Include   = rep(TRUE, times=length(current_samples))
+                Include   = rep(TRUE, times = length(current_samples))
             )
         } else {
             # reapply previous edits for existing samples
-            values$cached_samples_tab <- data.frame(Sample = current_samples) |>
-                left_join(values$cached_samples_tab) |>
+            cache$samples_tab <- data.frame(Sample = current_samples) |>
+                left_join(cache$samples_tab) |>
                 # fill in defaults for new samples
                 mutate(
                     New_Label = coalesce(New_Label, Sample),
@@ -601,15 +608,15 @@ server <- function(input, output, session) {
                 )
         }
     })
-    
+
     # -------------------------------------------------------------------------
     # Output: Sample control table
     # -------------------------------------------------------------------------
     output$samples_tab <- renderRHandsontable({
-        req(nrow(values$cached_samples_tab) > 0)
-        
+        req(nrow(cache$samples_tab) > 0)
+
         rhandsontable(
-            values$cached_samples_tab,
+            cache$samples_tab,
             rowHeaders = TRUE,
             readOnly = FALSE,
             stretchH = "all",
@@ -620,21 +627,19 @@ server <- function(input, output, session) {
             hot_col("New_Label", type = "text") |>
             hot_col("Include", type = "checkbox") |>
             hot_cols(columnSorting = FALSE)
-        
     })
-    
-    
-    
+
+
     # -------------------------------------------------------------------------
     # Derived Reactive: Processed data (with parsed Cq, renames, sample ordering and exclusions)
     # -------------------------------------------------------------------------
-    
+
     cq_data <- reactive({
         req(hot_to_r(input$raw_data))
         req(nrow(hot_to_r(input$samples_tab)) > 0)
-        
+
         samples_metadata <- hot_to_r(input$samples_tab)
-        
+
         hot_to_r(input$raw_data) |>
             mutate(Key = row_number()) |> # add unique Key ID matching raw data rows
             relocate(Key, .before = 1) |>
@@ -643,78 +648,80 @@ server <- function(input, output, session) {
             filter(Include) |>
             # update and reorder sample name
             mutate(Sample = factor(New_Label,
-                                   levels = unique(samples_metadata$New_Label))) |>
+                levels = unique(samples_metadata$New_Label)
+            )) |>
             select(-New_Label, -Include) |>
             arrange(Sample) |>
-            mutate(Cq = parse_Cq(Cq) |> as.numeric(),
-            ) |>
+            mutate(Cq = parse_Cq(Cq) |> as.numeric()) |>
             # mark excluded points
             mutate(
-                Keep = !Key %in% values$excluded_point_keys,
+                Keep = !Key %in% cache$excluded_point_keys,
                 Undetected = !is.finite(Cq)
             )
     })
-    
+
     # -------------------------------------------------------------------------
     # Observer: Update target selector choices
     # -------------------------------------------------------------------------
-    
+
     observe({
         req(cq_data())
-        
+
         targets <- cq_data()$Target |>
             unique() |>
             drop_empty() |>
             sort()
-        
+
         # if no change in targets, skip update
-        req(!identical(targets, values$targets_available))
-        
+        req(!identical(targets, cache$targets_available))
+
         # restore previous selection if possible
-        if (values$select_ct_targeted %in% targets) {
-            selected = values$select_ct_targeted
+        if (cache$select_ct_targeted %in% targets) {
+            selected <- cache$select_ct_targeted
         } else {
-            selected = targets[1]
+            selected <- targets[1]
         }
-        
-        # cache last list of targets 
-        values$targets_available <- targets
+
+        # cache last list of targets
+        cache$targets_available <- targets
         updateSelectInput(session, "select_ct_target", choices = targets, selected = selected)
-        
+
         selected_hk <- targets[is_HK(targets)]
         updatePickerInput(session, "hk_genes", choices = targets, selected = selected_hk)
-        
     })
-    
+
     # --------------------------------------------------------------------------
     # OvserveEvent: cache last target selected
     # --------------------------------------------------------------------------
     observeEvent(input$select_ct_target, {
-        values$select_ct_targeted <- input$select_ct_target
+        cache$select_ct_targeted <- input$select_ct_target
     })
-    
+
     # -------------------------------------------------------------------------
     # Output: Cq Plot and plot title
     # -------------------------------------------------------------------------
-    
+
     output$ct_plot_title <- renderText({
         req(input$select_ct_target)
         paste("Cq Values for", input$select_ct_target)
     })
-    
+
     output$ct_plot <- renderPlotly({
         df <- cq_data()
         req(df, nrow(df) > 0)
         req(input$select_ct_target)
-        
+
         df_target <- df |>
             filter(Target == input$select_ct_target) |>
-            mutate(Keep_label = ifelse(Keep, "Included", "Excluded"),
-                   point_type_label = ifelse(Undetected, "Undetected", "Detected"),
+            mutate(
+                Keep_label = ifelse(Keep, "Included", "Excluded"),
+                point_type_label = ifelse(Undetected, "Undetected", "Detected"),
             )
-        
-        n_samples <- df_target$Sample |> unique() |> length()
-        
+
+        n_samples <- df_target$Sample |>
+            unique() |>
+            length()
+
         df_summary_target <- df_target |>
             filter(Keep) |>
             group_by(across(
@@ -723,43 +730,49 @@ server <- function(input, output, session) {
             summarize(
                 mean = mean_handle_inf(Cq),
                 point_type_label = "Mean",
-                Keep_label  = NA # initialize empty keep_label to avoid duplication of the legend in ggplotly
+                Keep_label = NA # initialize empty keep_label to avoid duplication of the legend in ggplotly
             )
-        
+
         # force a minumum of y-axis range of 3 units
         y_limits <- get_Cq_y_limits(df_target$Cq, min_range = 3)
-        
-        p <- ggplot(df_target,
-                    aes(x = Sample, y = Cq,
-                        alpha = Keep_label,
-                        color = point_type_label,
-                        shape = point_type_label,
-                        # label on hoover
-                        text = glue(
-                            "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
+
+        p <- ggplot(
+            df_target,
+            aes(
+                x = Sample, y = Cq,
+                alpha = Keep_label,
+                color = point_type_label,
+                shape = point_type_label,
+                # label on hoover
+                text = glue(
+                    "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
                             Target: {Target}
                             Cq: {round(Cq, 2)}
                             {ifelse(Keep, '', ' (excluded)')}"
-                        ),
-                        key = Key
-                    )) +
-            annotate("rect", xmin = 0.5, xmax = n_samples+0.5, ymin = 35, ymax = 40, alpha = 0.6, fill = "#EBEBEB") +
-            geom_beeswarm(method = "compactswarm", preserve.data.axis=TRUE) +
-            geom_point(data = df_summary_target, 
-                       aes(x = Sample, y = mean,
-                           text = glue(
-                               "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
+                ),
+                key = Key
+            )
+        ) +
+            annotate("rect", xmin = 0.5, xmax = n_samples + 0.5, ymin = 35, ymax = 40, alpha = 0.6, fill = "#EBEBEB") +
+            geom_beeswarm(method = "compactswarm", preserve.data.axis = TRUE) +
+            geom_point(
+                data = df_summary_target,
+                aes(
+                    x = Sample, y = mean,
+                    text = glue(
+                        "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
                             Target: {Target}
                             Mean Cq: {round(mean, 2)}"
-                           ),
-                           shape = point_type_label,
-                           color = point_type_label,
-                           alpha = Keep_label),
-                       inherit.aes = F,
-                       size = 4
+                    ),
+                    shape = point_type_label,
+                    color = point_type_label,
+                    alpha = Keep_label
+                ),
+                inherit.aes = F,
+                size = 4
             ) +
             scale_shape_manual(
-                values = c("Detected" = 16, "Undetected" = 1,  "Mean" = 4),
+                values = c("Detected" = 16, "Undetected" = 1, "Mean" = 4),
                 name = "",
             ) +
             scale_color_manual(
@@ -777,10 +790,12 @@ server <- function(input, output, session) {
                 title = NULL
             ) +
             coord_cartesian(ylim = y_limits) +
-            scale_y_continuous(expand = expansion(mult = 0.05, add = 0),
-                               labels = function(x) ifelse(x == 40, "≥40", x),  # label 40+ for undetected
-                               # add extra distance to squish to separate from other points
-                               oob = squish_infinite_to_val) +
+            scale_y_continuous(
+                expand = expansion(mult = 0.05, add = 0),
+                labels = function(x) ifelse(x == 40, "≥40", x), # label 40+ for undetected
+                # add extra distance to squish to separate from other points
+                oob = squish_infinite_to_val
+            ) +
             scale_x_discrete(expand = 0) +
             theme_minimal(base_size = 14) +
             theme(
@@ -788,51 +803,53 @@ server <- function(input, output, session) {
                 panel.grid.minor = element_blank(),
                 axis.text.x = element_text(angle = 45, hjust = 1)
             )
-        
+
         # facet by replicate if present
         if ("Replicate" %in% names(df)) {
-            p <- p + facet_wrap(~ Replicate, ncol = 1)
+            p <- p + facet_wrap(~Replicate, ncol = 1)
         }
-        
+
         ggplotly(p, tooltip = "text", source = "ct_plot") |>
             event_register("plotly_click") |>
             fix_plotly_legend()
     })
-    
+
     # -------------------------------------------------------------------------
     # Observer: Handle click-to-exclude
     # -------------------------------------------------------------------------
-    
+
     observeEvent(event_data("plotly_click", source = "ct_plot"), {
         click <- event_data("plotly_click", source = "ct_plot")
         req(click)
         # ignore click on summary points (no key column)
         req("key" %in% names(click))
-        
+
         clicked_key <- click$key
-        
+
         # toggle inclusion/exclusion
-        if(clicked_key %in% values$excluded_point_keys) {
+        if (clicked_key %in% cache$excluded_point_keys) {
             # currently excluded, include it (remove it from the exclusion list)
-            values$excluded_point_keys <- setdiff(values$excluded_point_keys, clicked_key)
+            cache$excluded_point_keys <- setdiff(cache$excluded_point_keys, clicked_key)
         } else {
             # currently included, exclude it (add it to the exclusion list)
-            values$excluded_point_keys <- append(clicked_key, values$excluded_point_keys)
+            cache$excluded_point_keys <- append(clicked_key, cache$excluded_point_keys)
         }
     })
-    
+
     # -------------------------------------------------------------------------
     # Derived Reactive: dCq
     # -------------------------------------------------------------------------
-    
+
     dCq_data <- reactive({
         req(cq_data())
         req(nrow(cq_data()) > 0)
         req(length(input$hk_genes) > 0)
-        
+
         HK_summary <- cq_data() |>
-            filter(Keep,
-                   Target %in% input$hk_genes) |>
+            filter(
+                Keep,
+                Target %in% input$hk_genes
+            ) |>
             group_by(across(
                 c("Sample", "Target", any_of("Replicate"))
             )) |>
@@ -845,62 +862,63 @@ server <- function(input, output, session) {
             ) |>
             # summarize all HKs per sample
             group_by(across(
-                c("Sample",  any_of("Replicate"))
+                c("Sample", any_of("Replicate"))
             )) |>
             summarize(
-                HK_mean      = mean(HK_mean, na.rm = TRUE),
-                n_HK_genes   = sum(HK_n > 0),
+                HK_mean = mean(HK_mean, na.rm = TRUE),
+                n_HK_genes = sum(HK_n > 0),
                 # pooled SD for independet samples, allowing different mean (same as in ANOVA)
-                HK_sd_pool   = sqrt(
-                    sum(HK_sd^2*(HK_n-1), na.rm = T)/
-                        (sum(HK_n,  na.rm = T)-n_HK_genes)
-                ), 
-                HK_se_pooled = HK_sd_pool*sqrt(1/(sum(HK_n, na.rm = T))),
+                HK_sd_pool = sqrt(
+                    sum(HK_sd^2 * (HK_n - 1), na.rm = T) /
+                        (sum(HK_n, na.rm = T) - n_HK_genes)
+                ),
+                HK_se_pooled = HK_sd_pool * sqrt(1 / (sum(HK_n, na.rm = T))),
                 .groups = "drop"
             )
-        
+
         cq_data() |>
-            filter(Keep,
-                   !Target %in% input$hk_genes) |>
+            filter(
+                Keep,
+                !Target %in% input$hk_genes
+            ) |>
             left_join(HK_summary) |>
             mutate(
                 dCq     = Cq - HK_mean,
                 exp_dCq = 2^-dCq
             )
     })
-    
+
     # -------------------------------------------------------------------------
     # Derived Reactive: dCq summary per individual replicate
     # -------------------------------------------------------------------------
-    
+
     dCq_rep_summary <- reactive({
         req(dCq_data())
         req(nrow(dCq_data()) > 0)
-        
+
         dCq_data() |>
             group_by(across(
                 c("Sample", "Target", any_of("Replicate"))
             )) |>
             summarize(
-                Cq_n   = n_valid_Cq(Cq),
-                Cq_sd  = sd_handle_inf(Cq),
-                Cq_se  = Cq_sd/sqrt(Cq_n),
-                
+                Cq_n    = n_valid_Cq(Cq),
+                Cq_sd   = sd_handle_inf(Cq),
+                Cq_se   = Cq_sd / sqrt(Cq_n),
                 dCq_mean = mean_handle_inf(dCq),
                 # propagate SD and SE including HK variance/uncertainty.
-                dCq_sd = ifelse(input$propagate_var, 
-                                # propagate HK SD
-                                sqrt(Cq_sd^2 + HK_sd_pool^2),
-                                # Compute Cq stats without propagating HK variance/uncertainty.
-                                # This is statistically inaccurate but common in practice because it’s straightforward to compute.
-                                Cq_sd # the same as sd of deltaCq
+                dCq_sd = ifelse(input$propagate_var,
+                    # propagate HK SD
+                    sqrt(Cq_sd^2 + HK_sd_pool^2),
+                    # Compute Cq stats without propagating HK variance/uncertainty.
+                    # This is statistically inaccurate but common in practice because it’s straightforward to compute.
+                    Cq_sd # the same as sd of deltaCq
                 ),
                 dCq_se = ifelse(input$propagate_var,
-                                # propagate HK SE
-                                sqrt(Cq_se^2 + HK_se_pooled^2),
-                                # Compute Cq stats without propagating HK variance/uncertainty.
-                                # This is statistically inaccurate but common in practice because it’s straightforward to compute.
-                                dCq_sd/sqrt(Cq_n)
+                    # propagate HK SE
+                    sqrt(Cq_se^2 + HK_se_pooled^2),
+                    # Compute Cq stats without propagating HK variance/uncertainty.
+                    # This is statistically inaccurate but common in practice because it’s straightforward to compute.
+                    dCq_sd / sqrt(Cq_n)
                 ),
                 dCq_sd_low  = dCq_mean - dCq_sd,
                 dCq_sd_high = dCq_mean + dCq_sd,
@@ -919,16 +937,16 @@ server <- function(input, output, session) {
             # mark undetected
             mutate(Undetected = Cq_n == 0)
     })
-    
+
     # -------------------------------------------------------------------------
     # Derived Reactive: number of biological replicates
     # -------------------------------------------------------------------------
-    
+
     n_bio_reps <- reactive({
         req(dCq_data())
         req(nrow(dCq_data()) > 0)
-        
-        if(input$include_replicates & "Replicate" %in% names(dCq_data())) {
+
+        if (input$include_replicates & "Replicate" %in% names(dCq_data())) {
             dCq_data() |>
                 pull("Replicate") |>
                 unique() |>
@@ -936,7 +954,6 @@ server <- function(input, output, session) {
         } else {
             1
         }
-        
     })
 
     # make it available to javascript
@@ -982,13 +999,13 @@ server <- function(input, output, session) {
             )
         }
     })
-    
+
     # -------------------------------------------------------------------------
     # Observe Event: Update default error bar type when toggling biological replicate summary
     # -------------------------------------------------------------------------
-    
+
     observeEvent(input$summarize_bio_reps, {
-        if(input$summarize_bio_reps == "aggregate") {
+        if (input$summarize_bio_reps == "aggregate") {
             updateRadioGroupButtons(
                 session,
                 "stat_type",
@@ -1002,23 +1019,23 @@ server <- function(input, output, session) {
             )
         }
     })
-    
+
     # -------------------------------------------------------------------------
     # Derived Reactive: dCq summary aggregating replicates if present
     # -------------------------------------------------------------------------
-    
+
     dCq_summary <- reactive({
         req(dCq_rep_summary())
         req(n_bio_reps() > 1)
-        
+
         dCq_rep_summary() |>
             group_by(across(c("Sample", "Target"))) |>
             summarize(
-                dCq_n    = n_valid_Cq(dCq_mean),
-                dCq_sd   = sd_handle_inf(dCq_mean), 
-                dCq_se   = dCq_sd/sqrt(dCq_n),
+                dCq_n  = n_valid_Cq(dCq_mean),
+                dCq_sd = sd_handle_inf(dCq_mean),
+                dCq_se = dCq_sd / sqrt(dCq_n),
                 # mean of means
-                dCq_mean = mean_handle_inf(dCq_mean),
+                dCq_mean    = mean_handle_inf(dCq_mean),
                 dCq_sd_low  = dCq_mean - dCq_sd,
                 dCq_sd_high = dCq_mean + dCq_sd,
                 dCq_se_low  = dCq_mean - dCq_se,
@@ -1032,47 +1049,48 @@ server <- function(input, output, session) {
                 exp_dCq_sd_high = 2^-(dCq_mean - dCq_sd),
                 exp_dCq_se_low  = 2^-(dCq_mean + dCq_se),
                 exp_dCq_se_high = 2^-(dCq_mean - dCq_se)
-            )  |>
+            ) |>
             # mark undetected
             mutate(Undetected = dCq_n == 0)
-        
     })
-    
+
     # --------------------------------------------------------------------------
     # derived reactive: average dCq for reference sample
     # --------------------------------------------------------------------------
-    
+
     reference_sample_dCq <- reactive({
-        req(nrow(dCq_rep_summary())>0)
-        
+        req(nrow(dCq_rep_summary()) > 0)
+
         samples_metadata <- hot_to_r(input$samples_tab)
         # at least 2 distinct samples
         req(samples_metadata$New_Label |> unique() |> length() >= 2)
-        
-        reference_sample <- samples_metadata |> first() |> pull("New_Label") 
-        
+
+        reference_sample <- samples_metadata |>
+            first() |>
+            pull("New_Label")
+
         dCq_rep_summary() |>
             filter(Sample == reference_sample) |>
             select(Target, any_of("Replicate"),
-                   ref_dCq_mean = dCq_mean,
-                   ref_dCq_sd = dCq_sd,
-                   ref_dCq_se = dCq_se)
-
+                ref_dCq_mean = dCq_mean,
+                ref_dCq_sd = dCq_sd,
+                ref_dCq_se = dCq_se
+            )
     })
-    
+
     # --------------------------------------------------------------------------
     # Observe: allow ddCq calculation only if reference sample for slected target is valid
     # --------------------------------------------------------------------------
-    
+
     observeEvent(input$select_out_target, {
         req(input$select_out_target)
         req(input$select_out_target)
-        
+
         current_target_ref_dCq <- reference_sample_dCq() |>
             filter(Target == input$select_out_target) |>
             pull("ref_dCq_mean")
-            
-        if(!all(is.finite(current_target_ref_dCq))) {
+
+        if (!all(is.finite(current_target_ref_dCq))) {
             updateRadioGroupButtons(
                 session,
                 "out_metric",
@@ -1086,14 +1104,14 @@ server <- function(input, output, session) {
             )
         }
     })
-    
+
     #---------------------------------------------------------------------------
     # Reactive: ddCq data points
     #---------------------------------------------------------------------------
-    
-    ddCq_data <- reactive ({
+
+    ddCq_data <- reactive({
         req(reference_sample_dCq())
-        
+
         dCq_data() |>
             left_join(reference_sample_dCq()) |>
             mutate(
@@ -1101,30 +1119,28 @@ server <- function(input, output, session) {
                 exp_ddCq = 2^-ddCq
             )
     })
-    
-    ddCq_rep_summary <- reactive ({
+
+    ddCq_rep_summary <- reactive({
         req(reference_sample_dCq())
-        
+
         dCq_rep_summary() |>
             left_join(reference_sample_dCq()) |>
             mutate(
                 ddCq_mean     = dCq_mean - ref_dCq_mean,
                 exp_ddCq_mean = 2^-ddCq_mean,
-                
-                ddCq_sd = ifelse(input$propagate_var, 
-                                # propagate control SD
-                                sqrt(dCq_sd^2 + ref_dCq_sd^2),
-                                dCq_sd # the same as sd of ddCq
+                ddCq_sd = ifelse(input$propagate_var,
+                    # propagate control SD
+                    sqrt(dCq_sd^2 + ref_dCq_sd^2),
+                    dCq_sd # the same as sd of ddCq
                 ),
                 ddCq_se = ifelse(input$propagate_var,
-                                sqrt(dCq_se^2 + ref_dCq_se^2),
-                                dCq_se
+                    sqrt(dCq_se^2 + ref_dCq_se^2),
+                    dCq_se
                 ),
-                ddCq_sd_low  = ddCq_mean - ddCq_sd,
-                ddCq_sd_high = ddCq_mean + ddCq_sd,
-                ddCq_se_low  = ddCq_mean - ddCq_se,
-                ddCq_se_high = ddCq_mean + ddCq_se,
-
+                ddCq_sd_low      = ddCq_mean - ddCq_sd,
+                ddCq_sd_high     = ddCq_mean + ddCq_sd,
+                ddCq_se_low      = ddCq_mean - ddCq_se,
+                ddCq_se_high     = ddCq_mean + ddCq_se,
                 exp_ddCq_mean    = 2^-(ddCq_mean),
                 exp_ddCq_sd_low  = 2^-(ddCq_mean + ddCq_sd),
                 exp_ddCq_sd_high = 2^-(ddCq_mean - ddCq_sd),
@@ -1132,19 +1148,19 @@ server <- function(input, output, session) {
                 exp_ddCq_se_high = 2^-(ddCq_mean - ddCq_se)
             )
     })
-    
+
     ddCq_summary <- reactive({
         req(ddCq_rep_summary())
         req(n_bio_reps() > 1)
-        
+
         ddCq_rep_summary() |>
             group_by(across(c("Sample", "Target"))) |>
             summarize(
                 ddCq_n    = n_valid_Cq(ddCq_mean),
-                ddCq_sd   = sd_handle_inf(ddCq_mean), 
-                ddCq_se   = ddCq_sd/sqrt(ddCq_n),
+                ddCq_sd   = sd_handle_inf(ddCq_mean),
+                ddCq_se   = ddCq_sd / sqrt(ddCq_n),
                 # mean of means
-                ddCq_mean = mean_handle_inf(ddCq_mean),
+                ddCq_mean    = mean_handle_inf(ddCq_mean),
                 ddCq_sd_low  = ddCq_mean - ddCq_sd,
                 ddCq_sd_high = ddCq_mean + ddCq_sd,
                 ddCq_se_low  = ddCq_mean - ddCq_se,
@@ -1158,7 +1174,7 @@ server <- function(input, output, session) {
                 exp_ddCq_sd_high = 2^-(ddCq_mean - ddCq_sd),
                 exp_ddCq_se_low  = 2^-(ddCq_mean + ddCq_se),
                 exp_ddCq_se_high = 2^-(ddCq_mean - ddCq_se)
-            )  |>
+            ) |>
             # mark undetected
             mutate(Undetected = ddCq_n == 0)
     })
@@ -1376,126 +1392,125 @@ server <- function(input, output, session) {
     # -------------------------------------------------------------------------
     observeEvent(dCq_data(), {
         req(dCq_data(), nrow(dCq_data()) > 0)
-        
-        non_hk_genes <- dCq_data()$Target |> unique() |> drop_empty()
-        
+
+        non_hk_genes <- dCq_data()$Target |>
+            unique() |>
+            drop_empty()
+
         updateSelectInput(session, "select_out_target", choices = non_hk_genes, selected = non_hk_genes[1])
     })
-    
-    
-    
+
+
     output$res_plot_title <- renderText({
         req(input$select_out_target)
         req(input$out_metric)
-        y_label = case_match(input$out_metric,
-                             "dCq"     ~ "-ΔCq",
-                             "exp_dCq" ~ "2^-ΔCq",
-                             "ddCq"    ~ "ΔΔCq",
-                             "exp_ddCq" ~ "2^-ΔΔCq",
+        y_label <- case_match(
+            input$out_metric,
+            "dCq" ~ "-ΔCq",
+            "exp_dCq" ~ "2^-ΔCq",
+            "ddCq" ~ "ΔΔCq",
+            "exp_ddCq" ~ "2^-ΔΔCq",
         )
 
         paste(y_label, " Values for", input$select_out_target)
     })
-    
+
     output$res_plot <- renderPlotly({
         req(input$select_out_target)
         req(input$stat_type)
         req(input$out_metric)
-        req(nrow(dCq_data())>0)
-        req(nrow(dCq_rep_summary())>0)
-        
-        if(input$summarize_bio_reps == "split" & input$out_metric %in% c("dCq", "exp_dCq")) {
+        req(nrow(dCq_data()) > 0)
+        req(nrow(dCq_rep_summary()) > 0)
+
+        if (input$summarize_bio_reps == "split" & input$out_metric %in% c("dCq", "exp_dCq")) {
             df_target <- dCq_data() |>
-                filter(Target == input$select_out_target) 
-            
-            y_value = input$out_metric
-            
+                filter(Target == input$select_out_target)
+
+            y_value <- input$out_metric
+
             df_summary_target <- dCq_rep_summary() |>
                 filter(Target == input$select_out_target)
-            
-        } else if (input$summarize_bio_reps == "aggregate" & input$out_metric %in% c("dCq", "exp_dCq")) { 
+        } else if (input$summarize_bio_reps == "aggregate" & input$out_metric %in% c("dCq", "exp_dCq")) {
             req(n_bio_reps() > 1)
             req(nrow(dCq_summary()) > 0)
-            
-            df_target <-  dCq_rep_summary() |>
+
+            df_target <- dCq_rep_summary() |>
                 filter(Target == input$select_out_target)
-            
+
             y_value <- glue("{input$out_metric}_mean")
-            
+
             df_summary_target <- dCq_summary() |>
                 filter(Target == input$select_out_target)
-            
-        } else if(input$summarize_bio_reps == "split" & input$out_metric %in% c("ddCq", "exp_ddCq")) {
+        } else if (input$summarize_bio_reps == "split" & input$out_metric %in% c("ddCq", "exp_ddCq")) {
             df_target <- ddCq_data() |>
-                filter(Target == input$select_out_target) 
-            
-            y_value = input$out_metric
-            
+                filter(Target == input$select_out_target)
+
+            y_value <- input$out_metric
+
             df_summary_target <- ddCq_rep_summary() |>
                 filter(Target == input$select_out_target)
-            
-        } else if (input$summarize_bio_reps == "aggregate" & input$out_metric %in% c("ddCq", "exp_ddCq")) { 
+        } else if (input$summarize_bio_reps == "aggregate" & input$out_metric %in% c("ddCq", "exp_ddCq")) {
             req(n_bio_reps() > 1)
             req(nrow(ddCq_summary()) > 0)
-            
-            df_target <-  ddCq_rep_summary() |>
+
+            df_target <- ddCq_rep_summary() |>
                 filter(Target == input$select_out_target)
-            
+
             y_value <- glue("{input$out_metric}_mean")
-            
+
             df_summary_target <- ddCq_summary() |>
                 filter(Target == input$select_out_target)
-            
         }
-        
-        
-        y_label = case_match(input$out_metric,
-                             "dCq"     ~ "-ΔCq",
-                             "exp_dCq" ~ "2^-ΔCq",
-                             "ddCq"     ~ "-ΔΔCq",
-                             "exp_ddCq" ~ "2^-ΔΔCq",
+
+
+        y_label <- case_match(
+            input$out_metric,
+            "dCq" ~ "-ΔCq",
+            "exp_dCq" ~ "2^-ΔCq",
+            "ddCq" ~ "-ΔΔCq",
+            "exp_ddCq" ~ "2^-ΔΔCq",
         )
-        
+
         # used to invert sign when plotting -dCt
         if (input$out_metric %in% c("dCq", "ddCq")) {
-            sign = -1
+            sign <- -1
         } else {
-            sign = 1
+            sign <- 1
         }
-        
+
         y_summary_value <- glue("{input$out_metric}_mean")
-        
+
         if (input$stat_type == "none") {
             error_bar_high  <- NULL
             error_bar_low   <- NULL
             error_bar_label <- ""
         } else {
-            error_bar_high  <- glue("{input$out_metric}_{input$stat_type}_high") 
+            error_bar_high  <- glue("{input$out_metric}_{input$stat_type}_high")
             error_bar_low   <- glue("{input$out_metric}_{input$stat_type}_low")
             error_bar_label <- glue("{str_to_upper(input$stat_type)}: ({round(df_summary_target[[error_bar_low]], 2)}; {round(df_summary_target[[error_bar_high]], 2)})")
         }
-        
+
         # compute plot y limits -----------------------------------------------
         values <- df_target[[y_value]]
-        
+
         # append Error bars values to compute y limits
         if (input$stat_type != "none") {
-            values <- values |> 
+            values <- values |>
                 append(c(
                     df_summary_target |> pull(error_bar_low),
                     df_summary_target |> pull(error_bar_high)
                 ))
         }
-        
+
         y_limits <- get_y_limits(values, metric = input$out_metric)
 
         undetected_present <- any(!is.finite(values[!is.na(values)]))
         if (input$out_metric == "dCq" & undetected_present) {
-            y_min_label <- glue("≤{y_limits[1]}") 
+            y_min_label <- glue("≤{y_limits[1]}")
         } else {
             y_min_label <- glue("{y_limits[1]}")
         }
-        
+
         # plot -------------------
         # add text label for hover label
         df_target <- df_target |>
@@ -1505,7 +1520,7 @@ server <- function(input, output, session) {
                 Target: {Target}
                 {y_label}: {round(sign*.data[[y_value]], 2)}"
             ))
-        
+
         df_summary_target <- df_summary_target |>
             mutate(text = glue(
                 "{Sample}
@@ -1513,61 +1528,68 @@ server <- function(input, output, session) {
                 Mean {y_label}: {round(sign*.data[[y_summary_value]], 2)}
                 {error_bar_label}"
             ))
-        
-        
+
+
         # add reference sample line
         if (input$out_metric == "exp_ddCq") {
-            p <- ggplot() + 
+            p <- ggplot() +
                 geom_hline(yintercept = 1, linetype = "dashed", color = "gray30")
         } else if (input$out_metric == "ddCq") {
-            p <- ggplot() + 
+            p <- ggplot() +
                 geom_hline(yintercept = 0, linetype = "dashed", color = "gray30")
         } else {
             p <- ggplot()
         }
-        
+
         # don't plot average bar for dCq value (0 has no meaning)
         if (input$out_metric != "dCq") {
             p <- p +
-                geom_bar(data = df_summary_target,
-                         aes(x = Sample, y = sign*.data[[y_summary_value]],
-                         text = text),
-                         stat = "identity",
-                         fill = accent_color(),
-                         alpha = 0.5,
-                         width = 0.6
+                geom_bar(
+                    data = df_summary_target,
+                    aes(
+                        x = Sample, y = sign * .data[[y_summary_value]],
+                        text = text
+                    ),
+                    stat = "identity",
+                    fill = accent_color(),
+                    alpha = 0.5,
+                    width = 0.6
                 )
         }
 
-        p <- p + 
-            geom_beeswarm(data = df_target,
-                          aes(x = Sample, y = sign*.data[[y_value]],
-                              text = text,
-                              color = point_type_label,
-                              shape = point_type_label
-                              # label on hoover
-                              ),
-                          method = "compactswarm", preserve.data.axis=TRUE)
-        
+        p <- p +
+            geom_beeswarm(
+                data = df_target,
+                aes(
+                    x = Sample, y = sign * .data[[y_value]],
+                    text = text,
+                    color = point_type_label,
+                    shape = point_type_label
+                    # label on hoover
+                ),
+                method = "compactswarm", preserve.data.axis = TRUE
+            )
+
         if (input$out_metric == "dCq") {
-            p <- p + 
+            p <- p +
                 # add mean points
-                geom_point(data = df_summary_target |>
-                               mutate(point_type_label = "Mean"),
-                           aes(x = Sample, y = sign*.data[[y_summary_value]],
-                               text = text,
-                               shape = point_type_label,
-                               color = point_type_label
-                           ),
-                           inherit.aes = F,
-                           size = 4
-                ) 
-                
+                geom_point(
+                    data = df_summary_target |>
+                        mutate(point_type_label = "Mean"),
+                    aes(
+                        x = Sample, y = sign * .data[[y_summary_value]],
+                        text = text,
+                        shape = point_type_label,
+                        color = point_type_label
+                    ),
+                    inherit.aes = F,
+                    size = 4
+                )
         }
-        
+
         p <- p +
             scale_shape_manual(
-                values = c("Detected" = 16, "Undetected" = 1,  "Mean" = 4),
+                values = c("Detected" = 16, "Undetected" = 1, "Mean" = 4),
                 name = "",
             ) +
             scale_color_manual(
@@ -1579,10 +1601,11 @@ server <- function(input, output, session) {
                 y = y_label,
                 title = NULL
             ) +
-            scale_y_continuous(expand = expansion(mult = 0.05, add = 0),
-                               labels = function(x) ifelse(x == y_limits[1], y_min_label, x),
-                               oob = function(x, range) squish_infinite_to_val(x, range, to_value = abs(y_limits[1]))
-                               ) +
+            scale_y_continuous(
+                expand = expansion(mult = 0.05, add = 0),
+                labels = function(x) ifelse(x == y_limits[1], y_min_label, x),
+                oob = function(x, range) squish_infinite_to_val(x, range, to_value = abs(y_limits[1]))
+            ) +
             coord_cartesian(ylim = y_limits) +
             theme_minimal(base_size = 14) +
             theme(
@@ -1590,31 +1613,30 @@ server <- function(input, output, session) {
                 panel.grid.minor = element_blank(),
                 axis.text.x = element_text(angle = 45, hjust = 1)
             )
-        
+
         # add error bars if requested
-        if(input$stat_type != "none") {
+        if (input$stat_type != "none") {
             p <- p +
                 geom_errorbar(
                     data = df_summary_target,
                     aes(
                         x    = Sample,
-                        ymin = sign*.data[[error_bar_low]],
-                        ymax = sign*.data[[error_bar_high]]
+                        ymin = sign * .data[[error_bar_low]],
+                        ymax = sign * .data[[error_bar_high]]
                     ),
                     inherit.aes = F,
                     width = 0.4,
                     color = accent_color()
                 )
         }
-        
+
         # facet by replicate if present
         if (input$summarize_bio_reps == "split" & ("Replicate" %in% names(df_target))) {
-            p <- p + facet_wrap(~ Replicate, ncol = 1)
+            p <- p + facet_wrap(~Replicate, ncol = 1)
         }
-        
+
         ggplotly(p, tooltip = "text") |>
             fix_plotly_legend()
-        
     })
 }
 
