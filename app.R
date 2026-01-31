@@ -1,7 +1,3 @@
-# =============================================================================
-# qPCR Analysis Shiny App
-# =============================================================================
-
 library(shiny)
 library(bslib)
 library(shinyWidgets)
@@ -13,9 +9,7 @@ library(scales)
 library(bsicons)
 library(glue)
 
-# =============================================================================
-# Example Data
-# =============================================================================
+# Example Data =================================================================
 
 # empty raw data table to initialize rhandsontable
 empty_raw_data <- data.frame(
@@ -32,7 +26,7 @@ example_data <- data.frame(
 )
 
 
-# helper functions ==========================================
+# helper functions =============================================================
 drop_empty <- function(x) {
     x[!is.na(x) & nzchar(str_trim(x))]
 }
@@ -44,9 +38,7 @@ source("R/is_HK.R")
 source("R/handle_undetected_stats.R")
 source("R/squish_infinite_to_val.R")
 
-# =============================================================================
-# UI Definition
-# =============================================================================
+# UI Definition ================================================================
 
 ui <- page_fillable(
     # Custom CSS
@@ -59,10 +51,7 @@ ui <- page_fillable(
         id = "main_tabs",
         nav_item(h5("qPCR Analysis Tool")),
         nav_spacer(),
-
-        # ---------------------------------------------------------------------
-        # Panel 1: Input Data
-        # ---------------------------------------------------------------------
+        # Panel 1: Input Data --------------------------------------------------
         nav_panel(
             title = "Input Data",
             page_sidebar(
@@ -110,10 +99,7 @@ ui <- page_fillable(
                 )
             )
         ),
-
-        # ---------------------------------------------------------------------
-        # Panel 2: Cq values inspection and exclusion
-        # ---------------------------------------------------------------------
+        # Panel 2: Cq values inspection and exclusion --------------------------
         nav_panel(
             title = "Cq",
             page_sidebar(
@@ -138,10 +124,7 @@ ui <- page_fillable(
                 )
             )
         ),
-
-        # ---------------------------------------------------------------------
-        # Panel 3: dCq analysis
-        # ---------------------------------------------------------------------
+        # Panel 3: dCq analysis ------------------------------------------------
         nav_panel(
             title = "Results",
             page_sidebar(
@@ -227,10 +210,7 @@ ui <- page_fillable(
                             )
                         ),
                     ),
-
-                    # ---------------------------------------------------------
-                    # Statistical Analysis Section (only if n_bio_reps > 1 and n_samples >= 2)
-                    # ---------------------------------------------------------
+                    # Statistical Analysis Section (only if n_bio_reps > 1 and n_samples >= 2) ----------
                     conditionalPanel(
                         condition = "output.n_bio_reps >= 2 && output.n_samples >= 2",
                         hr(),
@@ -410,14 +390,10 @@ ui <- page_fillable(
     )
 )
 
-# =============================================================================
-# Server Logic
-# =============================================================================
+# Server Logic =================================================================
 
 server <- function(input, output, session) {
-    # -------------------------------------------------------------------------
-    # Current theme accent color
-    # -------------------------------------------------------------------------
+    # Current theme accent color -----------------------------------------------
     accent_color <- reactive({
         bslib::bs_get_variables(bslib::bs_current_theme(session), "primary")[[1]]
     })
@@ -425,10 +401,7 @@ server <- function(input, output, session) {
     secondary_color <- reactive({
         bslib::bs_get_variables(bslib::bs_current_theme(session), "secondary")[[1]]
     })
-
-    # -------------------------------------------------------------------------
-    # Cache (reactiveValues)
-    # -------------------------------------------------------------------------
+    # Cache (reactiveValues) ---------------------------------------------------
 
     cache <- reactiveValues(
         # raw data, required to add/remove replicate column
@@ -448,11 +421,7 @@ server <- function(input, output, session) {
         select_ct_targeted  = c(),
         targets_available   = c()
     )
-
-
-    # -------------------------------------------------------------------------
-    # Observer: Toggle biological replicates column
-    # -------------------------------------------------------------------------
+    # Observer: Toggle biological replicates column ----------------------------
 
     observeEvent(input$include_replicates, {
         if (is.null(input$raw_data)) {
@@ -472,10 +441,7 @@ server <- function(input, output, session) {
             cache$raw_data <- select(current_data, -any_of("Replicate"))
         }
     })
-
-    # -------------------------------------------------------------------------
-    # Observer: Load example data
-    # -------------------------------------------------------------------------
+    # Observer: Load example data ----------------------------------------------
 
     observeEvent(input$load_example, {
         data_to_load <- example_data
@@ -486,10 +452,7 @@ server <- function(input, output, session) {
 
         cache$raw_data <- data_to_load
     })
-
-    # -------------------------------------------------------------------------
-    # Observer: clean data
-    # -------------------------------------------------------------------------
+    # Observer: clean data -----------------------------------------------------
 
     observeEvent(input$clear_data, {
         if (input$include_replicates) {
@@ -502,10 +465,7 @@ server <- function(input, output, session) {
         # reset the lsit of excluded points
         cache$excluded_point_keys <- c()
     })
-
-    # -------------------------------------------------------------------------
-    # Output: Raw data table
-    # -------------------------------------------------------------------------
+    # Output: Raw data table ---------------------------------------------------
 
     output$raw_data <- renderRHandsontable({
         req(cache$raw_data)
@@ -524,14 +484,12 @@ server <- function(input, output, session) {
             hot_context_menu(allowRowEdit = TRUE, allowColEdit = FALSE)
     })
 
-    # -------------------------------------------------------------------------
-    # Observer: on raw data edit:
+    # Observer: on raw data edit: ----------------------------------------------
     # 1. cache last `raw_data` and validate Cq values
     # 2. update `cache$samples_tab` when samples change in raw_data while preserving previous edits
-    # -------------------------------------------------------------------------
 
     observeEvent(input$raw_data, {
-        # 1. validate Cq values --------------------
+        # 1. validate Cq values ------------------------------------------------
         current_data <- hot_to_r(input$raw_data)
 
         original_cq <- current_data$Cq |>
@@ -573,7 +531,7 @@ server <- function(input, output, session) {
             ))
         }
 
-        # 2. cache last state of samples_tab ------------------------------
+        # 2. cache last state of samples_tab -----------------------------------
         cache$samples_tab <- hot_to_r(input$samples_tab)
 
         current_samples <- hot_to_r(input$raw_data)$Sample |>
@@ -608,10 +566,7 @@ server <- function(input, output, session) {
                 )
         }
     })
-
-    # -------------------------------------------------------------------------
-    # Output: Sample control table
-    # -------------------------------------------------------------------------
+    # Output: Sample control table ---------------------------------------------
     output$samples_tab <- renderRHandsontable({
         req(nrow(cache$samples_tab) > 0)
 
@@ -628,11 +583,7 @@ server <- function(input, output, session) {
             hot_col("Include", type = "checkbox") |>
             hot_cols(columnSorting = FALSE)
     })
-
-
-    # -------------------------------------------------------------------------
-    # Derived Reactive: Processed data (with parsed Cq, renames, sample ordering and exclusions)
-    # -------------------------------------------------------------------------
+    # Derived Reactive: Processed data (with parsed Cq, renames, sample ordering and exclusions) ----------
 
     cq_data <- reactive({
         req(hot_to_r(input$raw_data))
@@ -659,10 +610,7 @@ server <- function(input, output, session) {
                 Undetected = !is.finite(Cq)
             )
     })
-
-    # -------------------------------------------------------------------------
-    # Observer: Update target selector choices
-    # -------------------------------------------------------------------------
+    # Observer: Update target selector choices ---------------------------------
 
     observe({
         req(cq_data())
@@ -689,17 +637,11 @@ server <- function(input, output, session) {
         selected_hk <- targets[is_HK(targets)]
         updatePickerInput(session, "hk_genes", choices = targets, selected = selected_hk)
     })
-
-    # --------------------------------------------------------------------------
-    # OvserveEvent: cache last target selected
-    # --------------------------------------------------------------------------
+    # OvserveEvent: cache last target selected ---------------------------------
     observeEvent(input$select_ct_target, {
         cache$select_ct_targeted <- input$select_ct_target
     })
-
-    # -------------------------------------------------------------------------
-    # Output: Cq Plot and plot title
-    # -------------------------------------------------------------------------
+    # Output: Cq Plot and plot title -------------------------------------------
 
     output$ct_plot_title <- renderText({
         req(input$select_ct_target)
@@ -813,10 +755,7 @@ server <- function(input, output, session) {
             event_register("plotly_click") |>
             fix_plotly_legend()
     })
-
-    # -------------------------------------------------------------------------
-    # Observer: Handle click-to-exclude
-    # -------------------------------------------------------------------------
+    # Observer: Handle click-to-exclude ----------------------------------------
 
     observeEvent(event_data("plotly_click", source = "ct_plot"), {
         click <- event_data("plotly_click", source = "ct_plot")
@@ -835,10 +774,7 @@ server <- function(input, output, session) {
             cache$excluded_point_keys <- append(clicked_key, cache$excluded_point_keys)
         }
     })
-
-    # -------------------------------------------------------------------------
-    # Derived Reactive: dCq
-    # -------------------------------------------------------------------------
+    # Derived Reactive: dCq ----------------------------------------------------
 
     dCq_data <- reactive({
         req(cq_data())
@@ -887,10 +823,7 @@ server <- function(input, output, session) {
                 exp_dCq = 2^-dCq
             )
     })
-
-    # -------------------------------------------------------------------------
-    # Derived Reactive: dCq summary per individual replicate
-    # -------------------------------------------------------------------------
+    # Derived Reactive: dCq summary per individual replicate -------------------
 
     dCq_rep_summary <- reactive({
         req(dCq_data())
@@ -937,10 +870,7 @@ server <- function(input, output, session) {
             # mark undetected
             mutate(Undetected = Cq_n == 0)
     })
-
-    # -------------------------------------------------------------------------
-    # Derived Reactive: number of biological replicates
-    # -------------------------------------------------------------------------
+    # Derived Reactive: number of biological replicates ------------------------
 
     n_bio_reps <- reactive({
         req(dCq_data())
@@ -961,10 +891,7 @@ server <- function(input, output, session) {
         n_bio_reps()
     })
     outputOptions(output, "n_bio_reps", suspendWhenHidden = FALSE)
-
-    # -------------------------------------------------------------------------
-    # Derived Reactive: number of samples
-    # -------------------------------------------------------------------------
+    # Derived Reactive: number of samples --------------------------------------
 
     n_samples <- reactive({
         req(dCq_data())
@@ -979,10 +906,7 @@ server <- function(input, output, session) {
         n_samples()
     })
     outputOptions(output, "n_samples", suspendWhenHidden = FALSE)
-
-    # -------------------------------------------------------------------------
-    # Observe Event: disable biological replicate summary if only one replicate
-    # -------------------------------------------------------------------------
+    # Observe Event: disable biological replicate summary if only one replicate ----------
 
     observeEvent(n_bio_reps(), {
         if (n_bio_reps() > 1) {
@@ -999,10 +923,7 @@ server <- function(input, output, session) {
             )
         }
     })
-
-    # -------------------------------------------------------------------------
-    # Observe Event: Update default error bar type when toggling biological replicate summary
-    # -------------------------------------------------------------------------
+    # Observe Event: Update default error bar type when toggling biological replicate summary ----------
 
     observeEvent(input$summarize_bio_reps, {
         if (input$summarize_bio_reps == "aggregate") {
@@ -1019,10 +940,7 @@ server <- function(input, output, session) {
             )
         }
     })
-
-    # -------------------------------------------------------------------------
-    # Derived Reactive: dCq summary aggregating replicates if present
-    # -------------------------------------------------------------------------
+    # Derived Reactive: dCq summary aggregating replicates if present ----------
 
     dCq_summary <- reactive({
         req(dCq_rep_summary())
@@ -1053,10 +971,7 @@ server <- function(input, output, session) {
             # mark undetected
             mutate(Undetected = dCq_n == 0)
     })
-
-    # --------------------------------------------------------------------------
-    # derived reactive: average dCq for reference sample
-    # --------------------------------------------------------------------------
+    # derived reactive: average dCq for reference sample -----------------------
 
     reference_sample_dCq <- reactive({
         req(nrow(dCq_rep_summary()) > 0)
@@ -1077,10 +992,7 @@ server <- function(input, output, session) {
                 ref_dCq_se = dCq_se
             )
     })
-
-    # --------------------------------------------------------------------------
-    # Observe: allow ddCq calculation only if reference sample for slected target is valid
-    # --------------------------------------------------------------------------
+    # Observe: allow ddCq calculation only if reference sample for slected target is valid ----------
 
     observeEvent(input$select_out_target, {
         req(input$select_out_target)
@@ -1105,9 +1017,7 @@ server <- function(input, output, session) {
         }
     })
 
-    #---------------------------------------------------------------------------
-    # Reactive: ddCq data points
-    #---------------------------------------------------------------------------
+    # Reactive: ddCq data points -----------------------------------------------
 
     ddCq_data <- reactive({
         req(reference_sample_dCq())
@@ -1178,10 +1088,7 @@ server <- function(input, output, session) {
             # mark undetected
             mutate(Undetected = ddCq_n == 0)
     })
-
-        # -------------------------------------------------------------------------
-    # Output Flags: Conditional panel visibility for statistical tests
-    # -------------------------------------------------------------------------
+    # Output Flags: Conditional panel visibility for statistical tests ---------
 
     stats_ui_flags <- reactive({
         req(input$stats_test)
@@ -1297,10 +1204,7 @@ server <- function(input, output, session) {
         stats_ui_flags()$show_post_hoc_test
     })
     outputOptions(output, "show_post_hoc_test", suspendWhenHidden = FALSE)
-
-    # -------------------------------------------------------------------------
-    # Observer: Update stats_test choices based on metric and sample count
-    # -------------------------------------------------------------------------
+    # Observer: Update stats_test choices based on metric and sample count ----------
 
     observeEvent(list(input$stats_metric, n_samples()), {
         req(input$stats_metric)
@@ -1359,10 +1263,7 @@ server <- function(input, output, session) {
 
         updatePickerInput(session, "stats_test", choices = choices, selected = default)
     })
-
-    # -------------------------------------------------------------------------
-    # Output: Post-hoc test description based on omnibus test and comparison
-    # -------------------------------------------------------------------------
+    # Output: Post-hoc test description based on omnibus test and comparison ----------
 
     output$stats_posthoc <- renderText({
         req(input$stats_test)
@@ -1386,10 +1287,7 @@ server <- function(input, output, session) {
 
         posthoc
     })
-
-    # -------------------------------------------------------------------------
-    # Output: Results Plot
-    # -------------------------------------------------------------------------
+    # Output: Results Plot -----------------------------------------------------
     observeEvent(dCq_data(), {
         req(dCq_data(), nrow(dCq_data()) > 0)
 
@@ -1511,7 +1409,7 @@ server <- function(input, output, session) {
             y_min_label <- glue("{y_limits[1]}")
         }
 
-        # plot -------------------
+        # plot -----------------------------------------------------------------
         # add text label for hover label
         df_target <- df_target |>
             mutate(point_type_label = ifelse(Undetected, "Undetected", "Detected")) |>
@@ -1640,10 +1538,7 @@ server <- function(input, output, session) {
     })
 }
 
-
-# =============================================================================
-# Run App
-# =============================================================================
+# Run App ======================================================================
 
 shinyApp(ui = ui, server = server)
 # TODO: remove hoover on rectangle
