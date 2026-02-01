@@ -2,7 +2,6 @@ library(tidyverse)
 library(glue)
 library(lme4)
 library(broom)
-library(broom.mixed)
 library(lmerTest)
 library(emmeans)
 library(nlme)
@@ -156,6 +155,8 @@ run_mixed_effect <- function(x,
         omnibus_pvalue <- anova_res["Sample", "Pr(>F)"]
 
         omnibus_res <- broom::tidy(anova_res) |>
+            mutate(NumDF = round(NumDF, 3),
+                   DenDF = round(DenDF, 3)) |>
             rename(
                 Term             = term,
                 `Sum Sq`         = sumsq,
@@ -201,6 +202,8 @@ run_mixed_effect <- function(x,
         omnibus_pvalue <- anova_res["Sample", "p-value"]
 
         omnibus_res <- as_tibble(anova_res, rownames = "Term") |>
+            mutate(numDF = round(numDF, 3),
+                   denDF = round(denDF, 3)) |>
             rename(
                 `Numerator Df`   = numDF,
                 `Denominator Df` = denDF
@@ -244,7 +247,7 @@ run_mixed_effect <- function(x,
         if(post_hoc_method %in% c("Tukey HSD")) {
             post_hoc_res <- post_hoc_res |>
                 rename(`q-value` = statistic)
-        } else if (post_hoc_method %in% c("Dunnet", "Dunnett T3", "Dunnett adjusted for unequal variances")) {
+        } else if (post_hoc_method %in% c("Dunnett", "Dunnett T3", "Dunnett adjusted for unequal variances")) {
             post_hoc_res <- post_hoc_res |>
                 rename(`t-value` = statistic)
         } else {
@@ -631,6 +634,14 @@ run_pairwise_mann_whitney <- function(x,
     comparison <- match.arg(comparison)
     p.adjust   <- match.arg(p.adjust)
 
+    test_formula <- reformulate("Sample", response = response)
+    
+    if (comparison == "trt.vs.ctrl") {
+        reference_sample <- x$Sample |> levels() |> head(n=1)
+    } else {
+        reference_sample <- NULL # pairwise comparisons
+    }
+
     test <- rstatix::pairwise_wilcox_test(
         data      = x,
         formula   = test_formula,
@@ -675,9 +686,10 @@ run_pairwise_mann_whitney <- function(x,
 # test the functions ---------
 # x <- read_csv("data/simulated_qPCR_data.csv") |>
 #     mutate(Sample = factor(Sample))
+
 # 
 # run_ancova(x, comparison = "trt.vs.ctrl")
-# run_mixed_effect(x, comparison = "pairwise", equal.var = F)
+# run_mixed_effect(x, comparison = "trt.vs.ctrl", equal.var = T)
 # run_anova(x, comparison = "pairwise", response = "ddCq")
 # run_kruskal(x, comparison = "pairwise", response = "exp_ddCq", p.adjust = "holm")
 # run_pairwise_ttest(x, comparison = "trt.vs.ctrl", response = "ddCq", p.adjust = "BH")
