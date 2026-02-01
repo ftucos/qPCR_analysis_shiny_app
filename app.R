@@ -1117,7 +1117,7 @@ server <- function(input, output, session) {
 
             # --- Pairwise t-test ---
             "pairwise_ttest" = list(
-                show_unequal_variance_toggle    = !isTRUE(input$stats_pool_sd),
+                show_unequal_variance_toggle    = TRUE,
                 show_multiple_comparison_type   = TRUE,
                 show_multiple_comparison_adjust = TRUE,
                 show_post_hoc_test              = FALSE
@@ -1142,7 +1142,7 @@ server <- function(input, output, session) {
             # --- Pairwise Wilcoxon-Mann-Whitney ---
             "pairwise_mann_whitney" = list(
                 show_unequal_variance_toggle    = FALSE,
-                show_multiple_comparison_type   = FALSE,
+                show_multiple_comparison_type   = TRUE,
                 show_multiple_comparison_adjust = TRUE,
                 show_post_hoc_test              = FALSE
             ),
@@ -1180,11 +1180,13 @@ server <- function(input, output, session) {
     outputOptions(output, "show_post_hoc_test", suspendWhenHidden = FALSE)
     # Observer: Update stats_test choices based on metric and sample count ----------
 
-    observeEvent(list(input$stats_metric, n_samples()), {
+    observeEvent(list(input$stats_metric, n_samples(), n_bio_reps()), {
         req(input$stats_metric)
         req(n_samples() >= 2)
 
         metric <- input$stats_metric
+        # Non-parametric tests require at least 5 biological replicates
+        include_nonparam <- n_bio_reps() >= 5
 
         # Determine available tests and default based on metric and sample count
         if (n_samples() > 2) {
@@ -1196,9 +1198,11 @@ server <- function(input, output, session) {
                         "ANCOVA" = "ancova",
                         "Mixed Effect Model" = "mixed_effect",
                         "Pairwise paired t-test" = "pairwise_paired_ttest"
-                    ),
-                    "Non-parametric" = c("Pairwise Wilcoxon" = "pairwise_wilcoxon")
+                    )
                 )
+                if (include_nonparam) {
+                    choices[["Non-parametric"]] <- c("Pairwise Wilcoxon signed-rank (paired)" = "pairwise_wilcoxon")
+                }
                 default <- "ancova"
             } else {
                 # ddCT or exp_ddCT: standard group comparisons
@@ -1206,12 +1210,14 @@ server <- function(input, output, session) {
                     "Parametric" = c(
                         "ANOVA" = "anova",
                         "Pairwise t-test" = "pairwise_ttest"
-                    ),
-                    "Non-parametric" = c(
+                    )
+                )
+                if (include_nonparam) {
+                    choices[["Non-parametric"]] <- c(
                         "Kruskal-Wallis" = "kruskal",
                         "Pairwise Wilcoxon-Mann-Whitney" = "pairwise_mann_whitney"
                     )
-                )
+                }
                 default <- "anova"
             }
         } else {
@@ -1221,16 +1227,20 @@ server <- function(input, output, session) {
                     "Parametric" = c(
                         "ANCOVA" = "ancova",
                         "Paired t-test" = "pairwise_paired_ttest"
-                    ),
-                    "Non-parametric" = c("Wilcoxon (signed-rank; paired)" = "pairwise_wilcoxon")
+                    )
                 )
+                if (include_nonparam) {
+                    choices[["Non-parametric"]] <- c("Wilcoxon signed-rank (paired)" = "pairwise_wilcoxon")
+                }
                 default <- "ancova"
             } else {
                 # ddCT or exp_ddCT
                 choices <- list(
-                    "Parametric" = c("t-test" = "pairwise_ttest"),
-                    "Non-parametric" = c("Wilcoxon-Mann-Whitney" = "pairwise_mann_whitney")
+                    "Parametric" = c("t-test" = "pairwise_ttest")
                 )
+                if (include_nonparam) {
+                    choices[["Non-parametric"]] <- c("Wilcoxon-Mann-Whitney" = "pairwise_mann_whitney")
+                }
                 default <- "pairwise_ttest"
             }
         }
@@ -1250,7 +1260,7 @@ server <- function(input, output, session) {
         posthoc <- switch(test,
             "ancova" = if (comparison == "pairwise") "Tukey HSD" else "Dunnett",
             "mixed_effect" = if (handle_variance) {
-                if (comparison == "pairwise") "Dunnett T3" else "Tamhane-Dunnett"
+                if (comparison == "pairwise") "Dunnett T3" else "Dunnett adjusted for unequal var."
             } else {
                 if (comparison == "pairwise") "Tukey HSD" else "Dunnett"
             },
