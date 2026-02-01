@@ -285,18 +285,6 @@ ui <- page_fillable(
                             )
                         ),
 
-                        # Pool SD toggle (only shown for pairwise t-test)
-                        conditionalPanel(
-                            condition = "output.show_pool_sd",
-                            prettySwitch(
-                                inputId   = "stats_pool_sd",
-                                label     = "Pool SD",
-                                fill      = TRUE,
-                                status    = "primary",
-                                value = TRUE
-                            )
-                        ),
-
                         # Handle unequal variance toggle (for mixed effect model)
                         conditionalPanel(
                             condition = "output.show_unequal_variance_toggle",
@@ -1099,7 +1087,6 @@ server <- function(input, output, session) {
             "ancova" = list(
                 show_unequal_variance_toggle    = FALSE,
                 show_multiple_comparison_type   = n_samples() > 2,
-                show_pool_sd                    = FALSE,
                 show_multiple_comparison_adjust = FALSE,
                 show_post_hoc_test              = TRUE
             ),
@@ -1108,7 +1095,6 @@ server <- function(input, output, session) {
             "mixed_effect" = list(
                 show_unequal_variance_toggle    = TRUE,
                 show_multiple_comparison_type   = TRUE,
-                show_pool_sd                    = FALSE,
                 show_multiple_comparison_adjust = FALSE,
                 show_post_hoc_test              = TRUE
             ),
@@ -1117,7 +1103,6 @@ server <- function(input, output, session) {
             "anova" = list(
                 show_unequal_variance_toggle    = FALSE,
                 show_multiple_comparison_type   = TRUE,
-                show_pool_sd                    = FALSE,
                 show_multiple_comparison_adjust = FALSE,
                 show_post_hoc_test              = TRUE
             ),
@@ -1126,7 +1111,6 @@ server <- function(input, output, session) {
             "kruskal" = list(
                 show_unequal_variance_toggle    = FALSE,
                 show_multiple_comparison_type   = TRUE,
-                show_pool_sd                    = FALSE,
                 show_multiple_comparison_adjust = isTRUE(input$stats_comparison == "pairwise"),
                 show_post_hoc_test              = TRUE
             ),
@@ -1135,7 +1119,6 @@ server <- function(input, output, session) {
             "pairwise_ttest" = list(
                 show_unequal_variance_toggle    = !isTRUE(input$stats_pool_sd),
                 show_multiple_comparison_type   = TRUE,
-                show_pool_sd                    = TRUE,
                 show_multiple_comparison_adjust = TRUE,
                 show_post_hoc_test              = FALSE
             ),
@@ -1144,7 +1127,6 @@ server <- function(input, output, session) {
             "pairwise_paired_ttest" = list(
                 show_unequal_variance_toggle    = FALSE,
                 show_multiple_comparison_type   = TRUE,
-                show_pool_sd                    = FALSE,
                 show_multiple_comparison_adjust = TRUE,
                 show_post_hoc_test              = FALSE
             ),
@@ -1153,7 +1135,6 @@ server <- function(input, output, session) {
             "pairwise_wilcoxon" = list(
                 show_unequal_variance_toggle    = FALSE,
                 show_multiple_comparison_type   = TRUE,
-                show_pool_sd                    = FALSE,
                 show_multiple_comparison_adjust = TRUE,
                 show_post_hoc_test              = FALSE
             ),
@@ -1162,7 +1143,6 @@ server <- function(input, output, session) {
             "pairwise_mann_whitney" = list(
                 show_unequal_variance_toggle    = FALSE,
                 show_multiple_comparison_type   = FALSE,
-                show_pool_sd                    = FALSE,
                 show_multiple_comparison_adjust = TRUE,
                 show_post_hoc_test              = FALSE
             ),
@@ -1171,7 +1151,6 @@ server <- function(input, output, session) {
             list(
                 show_unequal_variance_toggle    = FALSE,
                 show_multiple_comparison_type   = FALSE,
-                show_pool_sd                    = FALSE,
                 show_multiple_comparison_adjust = FALSE,
                 show_post_hoc_test              = FALSE
             )
@@ -1189,11 +1168,6 @@ server <- function(input, output, session) {
         stats_ui_flags()$show_multiple_comparison_type
     })
     outputOptions(output, "show_multiple_comparison_type", suspendWhenHidden = FALSE)
-
-    output$show_pool_sd <- reactive({
-        stats_ui_flags()$show_pool_sd
-    })
-    outputOptions(output, "show_pool_sd", suspendWhenHidden = FALSE)
 
     output$show_multiple_comparison_adjust <- reactive({
         stats_ui_flags()$show_multiple_comparison_adjust
