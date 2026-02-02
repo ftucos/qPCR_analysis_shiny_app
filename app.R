@@ -1310,6 +1310,8 @@ server <- function(input, output, session) {
             }
         }
 
+        # Freeze the reactive value to prevent stats_result from running with stale test value
+        freezeReactiveValue(input, "stats_test")
         updatePickerInput(session, "stats_test", choices = choices, selected = default)
     })
     # Output: Post-hoc test description based on omnibus test and comparison ----------
