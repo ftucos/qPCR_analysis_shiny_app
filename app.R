@@ -1,13 +1,15 @@
 library(shiny)
 library(bslib)
 library(shinyWidgets)
-library(tidyverse)
+library(bsicons)
 library(rhandsontable)
+
+library(tidyverse)
 library(plotly)
 library(ggbeeswarm)
 library(scales)
-library(bsicons)
 library(glue)
+library(DT)
 
 # Example Data =================================================================
 
@@ -37,6 +39,7 @@ source("R/fix_plotly_legend.R")
 source("R/is_HK.R")
 source("R/handle_undetected_stats.R")
 source("R/squish_infinite_to_val.R")
+source("R/statistical_tests.R")
 
 # UI Definition ================================================================
 
@@ -221,11 +224,11 @@ ui <- page_fillable(
                             inputId   = "stats_metric",
                             label     = "Test on:",
                             choices   = c(
-                                "-ΔCq"    = "dCT",
-                                "-ΔΔCq"   = "ddCT",
-                                "2^-ΔΔCq" = "exp_ddCT"
+                                "-ΔCq"    = "dCq",
+                                "-ΔΔCq"   = "ddCq",
+                                "2^-ΔΔCq" = "exp_ddCq"
                             ),
-                            selected  = "dCT",
+                            selected  = "dCq",
                             justified = TRUE,
                             width     = "100%",
                             size      = "sm"
@@ -233,7 +236,7 @@ ui <- page_fillable(
 
                         # Warning for exp data
                         conditionalPanel(
-                            condition = "input.stats_metric == 'exp_ddCT'",
+                            condition = "input.stats_metric == 'exp_ddCq'",
                             div(
                                 class = "alert alert-warning py-1 px-2 mb-2",
                                 style = "font-size: 0.85em;",
@@ -263,9 +266,9 @@ ui <- page_fillable(
                                 options = pickerOptions(container = "body")
                             ),
 
-                            # Tip about test recomendations (shown for dCT with > 2 samples)
+                            # Tip about test recomendations (shown for dCq with > 2 samples)
                             conditionalPanel(
-                                condition = "input.stats_metric == 'dCT' && output.n_samples > 2",
+                                condition = "input.stats_metric == 'dCq' && output.n_samples > 2",
                                 tooltip(
                                     bs_icon("lightbulb"),
                                     "ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated sample).
@@ -274,9 +277,9 @@ ui <- page_fillable(
                                     placement = "right"
                                 )
                             ),
-                            # Tip about test recomendations (shown for dCT with exactly 2 samples)
+                            # Tip about test recomendations (shown for dCq with exactly 2 samples)
                             conditionalPanel(
-                                condition = "input.stats_metric == 'dCT' && output.n_samples == 2",
+                                condition = "input.stats_metric == 'dCq' && output.n_samples == 2",
                                 tooltip(
                                     bs_icon("lightbulb"),
                                     "ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated vs treated). Paired t-test is better when the reference sample is arbitrary across replicates (e.g. comparing the expression between 2 different tumors or cell lines).",
@@ -319,7 +322,7 @@ ui <- page_fillable(
                                 label     = "Compare:",
                                 choices   = c(
                                     "Pairwise" = "pairwise",
-                                    "All vs Control" = "vs_control"
+                                    "All vs Control" = "trt.vs.ctrl"
                                 ),
                                 selected  = "pairwise",
                                 justified = TRUE,
@@ -372,6 +375,61 @@ ui <- page_fillable(
                     fillable = TRUE,
                     card_header(textOutput("res_plot_title", inline = TRUE)),
                     plotlyOutput("res_plot", height = "100%")
+                ),
+                # Statistical Results Card (only shown when stats panel is active)
+                conditionalPanel(
+                    condition = "output.n_bio_reps >= 2 && output.n_samples >= 2",
+                    card(
+                        card_header(
+                            class = "d-flex justify-content-between align-items-center",
+                            textOutput("stats_card_title", inline = TRUE),
+                            conditionalPanel(
+                                condition = "output.has_omnibus_test",
+                                uiOutput("stats_omnibus_badge")
+                            )
+                        ),
+                        # Warning for dropped Inf values
+                        conditionalPanel(
+                            condition = "output.stats_dropped_count > 0",
+                            div(
+                                class = "alert alert-warning py-2 px-3 mb-3",
+                                style = "font-size: 0.85em;",
+                                bs_icon("exclamation-triangle"),
+                                textOutput("stats_dropped_warning", inline = TRUE)
+                            )
+                        ),
+                        # Omnibus section (for ANCOVA, ANOVA, Mixed Effect, Kruskal-Wallis)
+                        conditionalPanel(
+                            condition = "output.has_omnibus_test",
+                            div(
+                                class = "mb-3",
+                                tags$h6(
+                                    class = "text-muted mb-2",
+                                    "Omnibus Test"
+                                ),
+                                # div(
+                                #     class = "alert alert-secondary py-2 px-3 mb-2",
+                                #     style = "font-size: 0.9em;",
+                                #     textOutput("stats_omnibus_label")
+                                # ),
+                                DT::dataTableOutput("stats_omnibus_table")
+                            ),
+                            hr()
+                        ),
+                        # Post-hoc or Pairwise results section
+                        div(
+                            tags$h6(
+                                class = "text-muted mb-2",
+                                textOutput("stats_comparison_title", inline = TRUE)
+                            ),
+                            DT::dataTableOutput("stats_results_table")
+                        ),
+                        # Method description
+                        div(
+                            class = "bg-light py-2 px-3",
+                            textOutput("stats_method")
+                        )
+                    )
                 )
             )
         )
@@ -432,13 +490,11 @@ server <- function(input, output, session) {
     # Observer: Load example data ----------------------------------------------
 
     observeEvent(input$load_example, {
-        data_to_load <- example_data
+        # Force-enable biological replicates when loading example data
+        updatePrettySwitch(session, "include_replicates", value = TRUE)
 
-        if (input$include_replicates) {
-            data_to_load$Replicate <- rep("R1", nrow(data_to_load))
-        }
-
-        cache$raw_data <- data_to_load
+        # Load example data from CSV
+        cache$raw_data <- read_csv("data/example_qPCR_data.csv", show_col_types = FALSE)
     })
     # Observer: clean data -----------------------------------------------------
 
@@ -1197,7 +1253,7 @@ server <- function(input, output, session) {
         # Determine available tests and default based on metric and sample count
         if (n_samples() > 2) {
             # > 2 samples
-            if (metric == "dCT") {
+            if (metric == "dCq") {
                 # dCq: comparison across samples accounting for HK variance
                 choices <- list(
                     "Parametric" = c(
@@ -1211,7 +1267,7 @@ server <- function(input, output, session) {
                 }
                 default <- "ancova"
             } else {
-                # ddCT or exp_ddCT: standard group comparisons
+                # ddCq or exp_ddCq: standard group comparisons
                 choices <- list(
                     "Parametric" = c(
                         "ANOVA" = "anova",
@@ -1228,7 +1284,7 @@ server <- function(input, output, session) {
             }
         } else {
             # = 2 samples
-            if (metric == "dCT") {
+            if (metric == "dCq") {
                 choices <- list(
                     "Parametric" = c(
                         "ANCOVA" = "ancova",
@@ -1240,7 +1296,7 @@ server <- function(input, output, session) {
                 }
                 default <- "ancova"
             } else {
-                # ddCT or exp_ddCT
+                # ddCq or exp_ddCq
                 choices <- list(
                     "Parametric" = c("t-test" = "pairwise_ttest")
                 )
@@ -1277,6 +1333,273 @@ server <- function(input, output, session) {
 
         posthoc
     })
+
+    # Reactive: Run Statistical Test -------------------------------------------
+
+    stats_result <- reactive({
+        req(input$stats_test)
+        req(input$select_out_target)
+        req(n_bio_reps() >= 2)
+        req(n_samples() >= 2)
+
+        # statistical test settings
+        test       <- input$stats_test
+        response   <- input$stats_metric
+        equal_var  <- !isTRUE(input$stats_unequal_variance)
+        comparison <- input$stats_comparison
+        p_adjust   <- input$stats_multiple_comparison_adjust
+
+        # Prepare data based on metric
+        if (response == "dCq") {
+            # For dCq tests, we need dCq with reference sample info
+            data <- dCq_rep_summary() |>
+                filter(Target == input$select_out_target) |>
+                left_join(reference_sample_dCq(), by = c("Target", "Replicate")) |>
+                # Rename to match expected column names in statistical functions
+                rename(dCq = dCq_mean, ref_dCq = ref_dCq_mean) |>
+                drop_na(dCq, ref_dCq)
+
+        } else {
+            # For ddCq or exp_ddCq, use ddCq data
+            data <- ddCq_rep_summary() |>
+                filter(Target == input$select_out_target) |>
+                # Rename to match expected column names in statistical functions
+                rename(ddCq = ddCq_mean, exp_ddCq = exp_ddCq_mean) |>
+                drop_na(ddCq, exp_ddCq)
+        }
+      
+        # for ANCOVA and paired t-test drop entire replicate run
+        if (test %in% c("ancova", "pairwise_paired_ttest")) {
+            # Find replicates with any Inf/undetected values
+            reps_with_inf <- data |>
+                filter(!is.finite(.data[[response]])) |>
+                pull(Replicate) |>
+                unique()
+            
+            n_dropped_reps <- length(reps_with_inf)
+            n_dropped_points <- 0  # no individual data points dropped
+            
+            # Drop entire replicates containing undetected values
+            if (n_dropped_reps > 0) {
+                data <- data |>
+                    filter(!Replicate %in% reps_with_inf)
+            }
+        }
+        # replace Inf with 999 for non-parametric tests (to avoid error in finding the max/min when more than 1 Inf is present)
+        else if (test %in% c("kruskal", "pairwise_wilcoxon", "pairwise_mann_whitney")) {
+            inf_replacemenet <- 999
+            data <- data |>
+                mutate(!!response := if_else(!is.finite(.data[[response]]), inf_replacemenet, .data[[response]]))
+            
+            n_dropped_points <- 0
+            n_dropped_reps <- 0
+        }
+        # Filter out Inf values (undetected) for other parametric tests 
+        else {
+            n_before <- nrow(data)
+            data_filtered <- data |>
+                filter(is.finite(.data[[response]]))
+            n_dropped_points <- n_before - nrow(data_filtered)
+            n_dropped_reps <- 0
+        
+            # Use filtered data for analysis
+            data <- data_filtered
+        }
+
+        # calculate samples after removing NA and eventual Inf for the selected target
+        n_samples <- data$Sample |> unique() |> length()
+        req(n_samples > 1)
+        
+        # Run appropriate test based on selection
+        tryCatch({
+            result <- switch(test,
+                "ancova" = run_ancova(data, response = response, comparison = comparison),
+                "mixed_effect" = run_mixed_effect(data, response = response, comparison = comparison, equal.var = equal_var),
+                "anova" = run_anova(data, response = response,comparison = comparison),
+                "kruskal" = run_kruskal(data, response = response, comparison = comparison, p.adjust = p_adjust),
+                "pairwise_ttest" = run_pairwise_ttest(data, response = response, comparison = comparison, equal.var = equal_var, p.adjust = p_adjust),
+                "pairwise_paired_ttest" = run_pairwise_paired_ttest(data, response = response, comparison = comparison, p.adjust = p_adjust),
+                "pairwise_wilcoxon" = run_pairwise_wilcoxon(data, response = response, comparison = comparison, p.adjust = p_adjust),
+                "pairwise_mann_whitney" = run_pairwise_mann_whitney(data, response = response, comparison = comparison, p.adjust = p_adjust)
+            )
+            # Add dropped count to result for warning display
+            result$n_dropped_points <- n_dropped_points
+            result$n_dropped_reps <- n_dropped_reps
+            result
+        }, error = function(e) {
+            list(error = as.character(e$message), n_dropped_points = n_dropped_points, n_dropped_reps = n_dropped_reps)
+            # print the error in the consol
+            print(e)
+        })
+    })
+
+    # Output: Stats card title with current target ------------------------------
+
+    output$stats_card_title <- renderText({
+        req(input$select_out_target)
+        paste("Statistical Results for", input$select_out_target)
+    })
+
+    # Output: Flag for omnibus test type (for conditional UI) ------------------
+
+    output$has_omnibus_test <- reactive({
+        req(input$stats_test)
+        input$stats_test %in% c("ancova", "mixed_effect", "anova", "kruskal")
+    })
+    outputOptions(output, "has_omnibus_test", suspendWhenHidden = FALSE)
+
+    # Output: Dropped count for Inf values (for conditional warning) -----------
+    output$stats_dropped_count <- reactive({
+        req(stats_result())
+        max(stats_result()$n_dropped_points, stats_result()$n_dropped_reps)
+    })
+    outputOptions(output, "stats_dropped_count", suspendWhenHidden = FALSE)
+
+    # Output: Warning text for dropped Inf values ------------------------------
+    output$stats_dropped_warning <- renderText({
+        req(stats_result())
+        req(stats_result()$n_dropped_points > 0 || stats_result()$n_dropped_reps > 0)
+        
+        n_dropped_points <- stats_result()$n_dropped_points
+        n_dropped_reps <- stats_result()$n_dropped_reps
+        
+        if (n_dropped_reps > 0) {
+            glue("{n_dropped_reps} replicate run{ifelse(n_dropped_reps > 1, 's', '')} with undetected values excluded from the analysis.")
+        } else {
+            glue("{n_dropped_points} data point{ifelse(n_dropped_points > 1, 's', '')} with undetected values (Inf) excluded from the analysis.")
+        }
+    })
+
+    # Output: Omnibus badge (brief p-value indicator) --------------------------
+
+    output$stats_omnibus_badge <- renderUI({
+        req(stats_result()$omnibus)
+        req(stats_result()$omnibus_pvalue)
+        
+        p <- stats_result()$omnibus_pvalue
+        badge_class <- ifelse(p <= 0.05, "badge bg-success", "badge bg-secondary")
+        badge_text  <- ifelse(p < 0.001,
+                                "p < 0.001",
+                                paste0("p = ", signif(p, digits = 2))
+                            )
+        
+        div(class = badge_class, badge_text)
+    })
+
+    # Output: Omnibus test label -----------------------------------------------
+
+    # output$stats_omnibus_label <- renderText({
+    #     req(stats_result()$omnibus)
+    #     req(stats_result()$omnibus_label)
+    #     stats_result()$omnibus_label
+    # })
+
+    # Output: Omnibus test table -----------------------------------------------
+
+    output$stats_omnibus_table <- DT::renderDataTable({
+        req(stats_result())
+        req(stats_result()$omnibus)
+
+        stats_result()$omnibus |>
+            DT::datatable(
+                # remove additional elements such as paging, search etc.
+                options = list(
+                    layout = list(
+                        topStart = NULL,
+                        topEnd = NULL,
+                        bottomStart = NULL,
+                        bottomEnd = NULL
+                    ),
+                    paging = FALSE,
+                    searching = FALSE,
+                    ordering = FALSE,
+                    info = FALSE
+                ),
+                rownames = FALSE,
+                selection = "none",
+                class = "compact stripe"
+            ) |>
+            DT::formatSignif(
+                columns = intersect(
+                    names(stats_result()$omnibus),
+                    c("Sum Sq", "Mean Sq", "Df", "Numerator Df", "Denominator Df", "F-value", "Chi-sq", "p-value")
+                ),
+                digits = 2
+            )
+    })
+
+    # Output: Comparison section title -----------------------------------------
+
+    output$stats_comparison_title <- renderText({
+        req(stats_result())
+        
+        if (!is.null(stats_result()$post_hoc_method)) {
+            paste("Post-hoc:", stats_result()$post_hoc_method)
+        } else if (!is.null(stats_result()$test_label)) {
+            stats_result()$test_label
+        } else {
+            warning("Unknown Test")
+            "Warning: Unknown Test"
+        }
+    })
+
+    # Output: Results table (post-hoc or pairwise) -----------------------------
+
+    output$stats_results_table <- DT::renderDataTable({
+        req(stats_result())
+
+        # Get the appropriate results table
+        results_df <- if (!is.null(stats_result()$post_hoc)) {
+            stats_result()$post_hoc
+        } else if (!is.null(stats_result()$test_res)) {
+            stats_result()$test_res
+        } else {
+            return(NULL)
+        }
+
+        # Identify numeric columns for rounding
+        numeric_cols <- results_df |> select_if(is.numeric) |> colnames()
+        
+        results_df |>
+            DT::datatable(
+                options = list(
+                    layout = list(
+                        topStart = NULL,
+                        topEnd = NULL,
+                        bottomStart = NULL,
+                        bottomEnd = NULL
+                    ),
+                    paging = FALSE,
+                    searching = FALSE,
+                    ordering = TRUE,
+                    info = FALSE
+                ),
+                rownames = FALSE,
+                selection = "none",
+                class = "compact stripe"
+            ) |>
+            DT::formatRound(
+                columns = numeric_cols,
+                digits = 4
+            ) |>
+            DT::formatStyle(
+                columns = "Significance",
+                color = DT::styleEqual(
+                    c("***", "**", "*", "ns"),
+                    c("#198754", "#28a745", "#5cb85c", "#6c757d")
+                ),
+                fontWeight = "bold"
+            )
+    })
+
+    # Output: Method description -----------------------------------------------
+
+    output$stats_method <- renderText({
+        req(stats_result())
+        req(stats_result()$method)
+        stats_result()$method
+    })
+
     # Output: Results Plot -----------------------------------------------------
     observeEvent(dCq_data(), {
         req(dCq_data(), nrow(dCq_data()) > 0)
@@ -1359,7 +1682,7 @@ server <- function(input, output, session) {
             "exp_ddCq" ~ "2^-ΔΔCq",
         )
 
-        # used to invert sign when plotting -dCt
+        # used to invert sign when plotting -dCq
         if (input$out_metric %in% c("dCq", "ddCq")) {
             sign <- -1
         } else {
