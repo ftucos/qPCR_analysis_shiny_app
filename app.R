@@ -1013,7 +1013,10 @@ server <- function(input, output, session) {
         dCq_data() |>
             left_join(reference_sample_dCq()) |>
             mutate(
-                ddCq     = dCq - ref_dCq_mean,
+                # Handle Inf - Inf = NaN case 
+                ddCq     = ifelse(is.infinite(dCq) & is.infinite(ref_dCq_mean),
+                                  0,
+                                  dCq - ref_dCq_mean),
                 exp_ddCq = 2^-ddCq
             )
     })
@@ -1024,7 +1027,10 @@ server <- function(input, output, session) {
         dCq_rep_summary() |>
             left_join(reference_sample_dCq()) |>
             mutate(
-                ddCq_mean     = dCq_mean - ref_dCq_mean,
+                # Handle Inf - Inf = NaN case   
+                ddCq_mean     = ifelse(is.infinite(dCq_mean) & is.infinite(ref_dCq_mean),
+                                      0,
+                                      dCq_mean - ref_dCq_mean),
                 exp_ddCq_mean = 2^-ddCq_mean,
                 ddCq_sd = ifelse(input$propagate_var,
                     # propagate control SD
