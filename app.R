@@ -490,6 +490,9 @@ server <- function(input, output, session) {
     # Observer: Load example data ----------------------------------------------
 
     observeEvent(input$load_example, {
+        # Wait for rhandsontable to be initialized to prevent infinite loop
+        req(input$raw_data)
+        
         # Force-enable biological replicates when loading example data
         updatePrettySwitch(session, "include_replicates", value = TRUE)
 
