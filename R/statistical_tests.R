@@ -54,8 +54,11 @@ format_pairwise_test <- function(pairwise_result) {
 # ANCOVA -----------------------------------------------------------------------
 # For dCq with biological replicates, adjusting for reference sample variance
 
-run_ancova <- function(x, comparison = c("pairwise", "trt.vs.ctrl")) {
+run_ancova <- function(x,
+                       response = c("dCq"),
+                       comparison = c("pairwise", "trt.vs.ctrl")) {
 
+    response <- match.arg(response)
     comparison <- match.arg(comparison)
 
     test_formula <- dCq ~ Sample + ref_dCq
@@ -138,9 +141,11 @@ run_ancova <- function(x, comparison = c("pairwise", "trt.vs.ctrl")) {
 # For dCq with biological replicates as random effect
 
 run_mixed_effect <- function(x,
+                             response = c("dCq"),
                              comparison = c("pairwise", "trt.vs.ctrl"),
                              equal.var  = TRUE) {
 
+    response <- match.arg(response)
     comparison <- match.arg(comparison)
     stopifnot(is.logical(equal.var), length(equal.var) == 1L, !is.na(equal.var))
 
@@ -361,7 +366,10 @@ run_kruskal <- function(x,
 
     comparison <- match.arg(comparison)
     response   <- match.arg(response)
-    p.adjust   <- match.arg(p.adjust)
+    
+    if (comparison == "pairwise") { # not requiret for many vs one dunn test (single-stpe adjustment)
+        p.adjust   <- match.arg(p.adjust)
+    }
 
     test_formula <- reformulate("Sample", response = response)
 
