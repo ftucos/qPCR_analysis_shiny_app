@@ -26,3 +26,14 @@
 	text-justify: inter-word;
 	white-space: normal; 
 }
+
+/* Remove bottom margin from stats comparison radio buttons */
+.stats-radio-compact .form-group {
+	margin-bottom: 0 !important;
+}
+
+/* Style omnibus accordion header */
+#omnibus_accordion .accordion-button {
+	width: 100%;
+	padding: 16px;
+}

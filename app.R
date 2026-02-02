@@ -46,7 +46,7 @@ source("R/statistical_tests.R")
 ui <- page_fillable(
     # Custom CSS
     tags$head(
-        tags$link(rel = "stylesheet", type = "text/css", href = "custom.css")
+        tags$link(rel = "stylesheet", type = "text/css", href = "www/custom.css")
     ),
 
     # Main navigation
@@ -317,17 +317,20 @@ ui <- page_fillable(
                         # Post Hoc comparison type (only shown when > 2 samples)
                         conditionalPanel(
                             condition = "output.show_multiple_comparison_type",
-                            radioGroupButtons(
-                                inputId   = "stats_comparison",
-                                label     = "Compare:",
-                                choices   = c(
-                                    "Pairwise" = "pairwise",
-                                    "All vs Control" = "trt.vs.ctrl"
-                                ),
-                                selected  = "pairwise",
-                                justified = TRUE,
-                                width = "100%",
-                                size = "sm"
+                            div(
+                                class = "stats-radio-compact",
+                                radioGroupButtons(
+                                    inputId   = "stats_comparison",
+                                    label     = "Multiple comparisons:",
+                                    choices   = c(
+                                        "Pairwise" = "pairwise",
+                                        "All vs Control" = "trt.vs.ctrl"
+                                    ),
+                                    selected  = "pairwise",
+                                    justified = TRUE,
+                                    width = "100%",
+                                    size = "sm"
+                                )
                             )
                         ),
 
@@ -335,19 +338,22 @@ ui <- page_fillable(
                         # let chose between Benjamini-Hochberg (FDR), Holm (FWER),  none
                         conditionalPanel(
                             condition = "output.show_multiple_comparison_adjust",
-                            radioGroupButtons(
-                                inputId   = "stats_multiple_comparison_adjust",
-                                label     = "Multiple comparison adjustment method:",
-                                choices   = c(
-                                    "Benjamini-Hochberg (FDR)" = "BH",
-                                    "Holm (FWER)" = "holm",
-                                    "None" = "none"
-                                ),
-                                selected  = "BH",
-                                justified = TRUE,
-                                width     = "100%",
-                                size      = "sm",
-                                direction = "vertical"
+                            div(
+                                class = "stats-radio-compact",
+                                radioGroupButtons(
+                                    inputId   = "stats_multiple_comparison_adjust",
+                                    label     = "Multiple comparison adjustment method:",
+                                    choices   = c(
+                                        "Benjamini-Hochberg (FDR)" = "BH",
+                                        "Holm (FWER)" = "holm",
+                                        "None" = "none"
+                                    ),
+                                    selected  = "BH",
+                                    justified = TRUE,
+                                    width     = "100%",
+                                    size      = "sm",
+                                    direction = "vertical"
+                                )
                             )
                         ),
 
@@ -381,12 +387,7 @@ ui <- page_fillable(
                     condition = "output.n_bio_reps >= 2 && output.n_samples >= 2",
                     card(
                         card_header(
-                            class = "d-flex justify-content-between align-items-center",
-                            textOutput("stats_card_title", inline = TRUE),
-                            conditionalPanel(
-                                condition = "output.has_omnibus_test",
-                                uiOutput("stats_omnibus_badge")
-                            )
+                            textOutput("stats_card_title", inline = TRUE)
                         ),
                         # Warning for dropped Inf values
                         conditionalPanel(
@@ -401,25 +402,30 @@ ui <- page_fillable(
                         # Omnibus section (for ANCOVA, ANOVA, Mixed Effect, Kruskal-Wallis)
                         conditionalPanel(
                             condition = "output.has_omnibus_test",
-                            div(
-                                class = "mb-3",
-                                tags$h6(
-                                    class = "text-muted mb-2",
-                                    "Omnibus Test"
-                                ),
-                                # div(
-                                #     class = "alert alert-secondary py-2 px-3 mb-2",
-                                #     style = "font-size: 0.9em;",
-                                #     textOutput("stats_omnibus_label")
-                                # ),
-                                DT::dataTableOutput("stats_omnibus_table")
+                            tags$h6(
+                                #class = "mb-2",
+                                "Omnibus test:"
                             ),
-                            hr()
+                            # omnibus title:
+                            accordion(
+                                id = "omnibus_accordion",
+                                class = "mb-2",
+                                accordion_panel(
+                                    title = div(
+                                        class = "d-flex justify-content-between align-items-center",
+                                        span(class = "mx-3", style = "font-size: 14px;", textOutput("stats_omnibus_label", inline = TRUE)),
+                                        uiOutput("stats_omnibus_badge")
+                                    ),
+                                    value = "omnibus_panel",
+                                    icon = NULL,
+                                    DT::dataTableOutput("stats_omnibus_table")
+                                )
+                            )
                         ),
                         # Post-hoc or Pairwise results section
                         div(
                             tags$h6(
-                                class = "text-muted mb-2",
+                                class = "mb-2",
                                 textOutput("stats_comparison_title", inline = TRUE)
                             ),
                             DT::dataTableOutput("stats_results_table")
@@ -427,7 +433,8 @@ ui <- page_fillable(
                         # Method description
                         div(
                             class = "bg-light py-2 px-3",
-                            textOutput("stats_method")
+                            tags$strong("Methods: "),
+                            textOutput("stats_method", inline = TRUE)
                         )
                     )
                 )
@@ -725,6 +732,41 @@ server <- function(input, output, session) {
         # force a minumum of y-axis range of 3 units
         y_limits <- get_Cq_y_limits(df_target$Cq, min_range = 3)
 
+        # Pre-compute hover text
+        has_replicate <- "Replicate" %in% names(df_target)
+        
+        df_target <- df_target |>
+            mutate(text = if (has_replicate) {
+                glue(
+                    "{Sample} ({Replicate})
+                    Target: {Target}
+                    Cq: {round(Cq, 2)}
+                    {ifelse(Keep, '', '(excluded)')}"
+                )
+            } else {
+                glue(
+                    "{Sample}
+                    Target: {Target}
+                    Cq: {round(Cq, 2)}
+                    {ifelse(Keep, '', '(excluded)')}"
+                )
+            })
+        
+        df_summary_target <- df_summary_target |>
+            mutate(text = if (has_replicate) {
+                glue(
+                    "{Sample} ({Replicate})
+                    Target: {Target}
+                    Mean Cq: {round(mean, 2)}"
+                )
+            } else {
+                glue(
+                    "{Sample}
+                    Target: {Target}
+                    Mean Cq: {round(mean, 2)}"
+                )
+            })
+
         p <- ggplot(
             df_target,
             aes(
@@ -732,13 +774,7 @@ server <- function(input, output, session) {
                 alpha = Keep_label,
                 color = point_type_label,
                 shape = point_type_label,
-                # label on hover
-                text = glue(
-                    "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
-                            Target: {Target}
-                            Cq: {round(Cq, 2)}
-                            {ifelse(Keep, '', ' (excluded)')}"
-                ),
+                text = text,
                 key = Key
             )
         ) +
@@ -748,11 +784,7 @@ server <- function(input, output, session) {
                 data = df_summary_target,
                 aes(
                     x = Sample, y = mean,
-                    text = glue(
-                        "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
-                            Target: {Target}
-                            Mean Cq: {round(mean, 2)}"
-                    ),
+                    text = text,
                     shape = point_type_label,
                     color = point_type_label,
                     alpha = Keep_label
@@ -1354,6 +1386,8 @@ server <- function(input, output, session) {
         comparison <- input$stats_comparison
         p_adjust   <- input$stats_multiple_comparison_adjust
 
+
+
         # Prepare data based on metric
         if (response == "dCq") {
             # For dCq tests, we need dCq with reference sample info
@@ -1493,11 +1527,14 @@ server <- function(input, output, session) {
 
     # Output: Omnibus test label -----------------------------------------------
 
-    # output$stats_omnibus_label <- renderText({
-    #     req(stats_result()$omnibus)
-    #     req(stats_result()$omnibus_label)
-    #     stats_result()$omnibus_label
-    # })
+    output$stats_omnibus_label <- renderText({
+        req(stats_result()$omnibus)
+        req(stats_result()$omnibus_label)
+        stats_result()$omnibus_label |>
+        # strip p-value that will be added in a label
+            str_remove(", p = [0-9\\-e\\.]+$")
+            
+    })
 
     # Output: Omnibus test table -----------------------------------------------
 
@@ -1729,15 +1766,23 @@ server <- function(input, output, session) {
 
         # plot -----------------------------------------------------------------
         # add text label for hover label
+        has_replicate <- "Replicate" %in% names(df_target)
+        
         df_target <- df_target |>
             mutate(point_type_label = ifelse(Undetected, "Undetected", "Detected")) |>
-            mutate(text = glue(
-                "{Sample}{ifelse('Replicate' %in% names(df_target),
-                                 paste0(' (', Replicate, ')'),
-                                 '')}
-                Target: {Target}
-                {y_label}: {round(sign*.data[[y_value]], 2)}"
-            ))
+            mutate(text = if (has_replicate) {
+                glue(
+                    "{Sample} ({Replicate})
+                    Target: {Target}
+                    {y_label}: {round(sign*.data[[y_value]], 2)}"
+                )
+            } else {
+                glue(
+                    "{Sample}
+                    Target: {Target}
+                    {y_label}: {round(sign*.data[[y_value]], 2)}"
+                )
+            })
 
         df_summary_target <- df_summary_target |>
             mutate(text = glue(
