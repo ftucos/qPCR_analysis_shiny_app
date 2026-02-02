@@ -14,8 +14,11 @@ df <- data.frame(
 
 # Adjust y-positions of significance bars to minimize height
 adjust_y_position <- function(res, y_base = NULL, step = NULL) {
-    # Sort by xmin to process intervals in order
-    res <- res |> arrange(xmin)
+    # Calculate bar width and sort by width (shorter bars first, then by xmin)
+    res <- res |> 
+        mutate(.row_id = row_number(),
+               .width = xmax - xmin) |>
+        arrange(.width, xmin)
     
     # Calculate step from existing y.positions if not provided
     if (is.null(step)) {
@@ -61,6 +64,11 @@ adjust_y_position <- function(res, y_base = NULL, step = NULL) {
     
     # Assign y-positions based on levels
     res$y.position <- y_base + (levels - 1) * step
+    
+    # Restore original order and remove temp columns
+    res <- res |> 
+        arrange(.row_id) |>
+        select(-.row_id, -.width)
     
     return(res)
 }
