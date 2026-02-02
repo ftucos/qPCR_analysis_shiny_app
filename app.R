@@ -673,7 +673,7 @@ server <- function(input, output, session) {
                 alpha = Keep_label,
                 color = point_type_label,
                 shape = point_type_label,
-                # label on hoover
+                # label on hover
                 text = glue(
                     "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
                             Target: {Target}
@@ -736,7 +736,7 @@ server <- function(input, output, session) {
 
         # facet by replicate if present
         if ("Replicate" %in% names(df)) {
-            p <- p + facet_wrap(~Replicate, ncol = 1)
+            p <- p + facet_wrap(~Replicate)
         }
 
         ggplotly(p, tooltip = "text", source = "ct_plot") |>
@@ -1404,7 +1404,9 @@ server <- function(input, output, session) {
         df_target <- df_target |>
             mutate(point_type_label = ifelse(Undetected, "Undetected", "Detected")) |>
             mutate(text = glue(
-                "{Sample}{ifelse('Replicate' %in% names(df_target),paste0(' (', Replicate, ')'), '')}
+                "{Sample}{ifelse('Replicate' %in% names(df_target),
+                                 paste0(' (', Replicate, ')'),
+                                 '')}
                 Target: {Target}
                 {y_label}: {round(sign*.data[[y_value]], 2)}"
             ))
@@ -1453,7 +1455,7 @@ server <- function(input, output, session) {
                     text = text,
                     color = point_type_label,
                     shape = point_type_label
-                    # label on hoover
+                    # label on hover
                 ),
                 method = "compactswarm", preserve.data.axis = TRUE
             )
@@ -1520,7 +1522,7 @@ server <- function(input, output, session) {
 
         # facet by replicate if present
         if (input$summarize_bio_reps == "split" & ("Replicate" %in% names(df_target))) {
-            p <- p + facet_wrap(~Replicate, ncol = 1)
+            p <- p + facet_wrap(~Replicate)
         }
 
         ggplotly(p, tooltip = "text") |>
@@ -1531,4 +1533,4 @@ server <- function(input, output, session) {
 # Run App ======================================================================
 
 shinyApp(ui = ui, server = server)
-# TODO: remove hoover on rectangle
+# TODO: remove hover on rectangle
