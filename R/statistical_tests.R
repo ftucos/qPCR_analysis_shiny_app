@@ -7,6 +7,15 @@ library(emmeans)
 library(nlme)
 library(PMCMRplus)
 
+format_response <- function(response) {
+    case_match(response,
+        "dCq"      ~ "ΔCq",
+        "ddCq"     ~ "ΔΔCq",
+        "exp_ddCq" ~  "2^-ΔΔCq",
+        .default = response
+    )
+}
+
 # Helper: convert p-values to significance symbols
 to_significance <- function(p) {
     case_when(
@@ -124,7 +133,7 @@ run_ancova <- function(x,
         post_hoc_method <- "Dunnett"
     }
 
-    method <- glue("Two-sided ANCOVA on dCq with reference sample dCq covariate adjustment, followed by {post_hoc_method} post-hoc test.")
+    method <- glue("Two-sided ANCOVA on {format_response(response)} with reference sample {format_response(response)} covariate adjustment, followed by {post_hoc_method} post-hoc test.")
 
     list(
         omnibus         = omnibus_res,
@@ -260,7 +269,7 @@ run_mixed_effect <- function(x,
             stop("Unexpected post-hoc method")
         }
 
-    method <- glue("Two-sided {omnibus_method} on dCq with Replicate as random effect intercept, followed by {post_hoc_method} post-hoc test.")
+    method <- glue("Two-sided {omnibus_method} on {format_response(response)} with Replicate as random effect intercept, followed by {post_hoc_method} post-hoc test.")
 
     list(
         omnibus         = omnibus_res,
@@ -343,7 +352,7 @@ run_anova <- function(x,
         post_hoc_method <- "Dunnett"
     }
 
-    method <- glue("Two-sided one-way ANOVA on {response}, followed by {post_hoc_method} post-hoc test.")
+    method <- glue("Two-sided one-way ANOVA on {format_response(response)}, followed by {post_hoc_method} post-hoc test.")
 
     list(
         omnibus         = omnibus_res,
@@ -401,7 +410,7 @@ run_kruskal <- function(x,
         
         post_hoc_method <- ifelse(
             p.adjust != "none",
-            glue("Dunn's ({p.adjust} adjusted)"),
+            glue("Dunn's ({str_replace(p.adjust, 'holm', 'Holm')} adjusted)"),
             glue("Dunn's (unadjusted)")
         )
         
@@ -429,7 +438,7 @@ run_kruskal <- function(x,
             rename(`p-value` = p.value)
     }
     
-    method <- glue("Two-sided Kruskal-Wallis test on {response}, followed by {post_hoc_method}.",
+    method <- glue("Two-sided Kruskal-Wallis test on {format_response(response)}, followed by {post_hoc_method}.",
                    # add `post-hoc test` before the adjustment method
                    post_hoc_method = str_replace(post_hoc_method, "Dunn's", "Dunn's post-hoc test") 
     )
@@ -488,7 +497,7 @@ run_pairwise_ttest <- function(x,
     
     adjust_label <- ifelse(
         p.adjust != "none",
-        glue("({p.adjust} adjusted)"),
+        glue("({str_replace(p.adjust, 'holm', 'Holm')} adjusted)"),
         "(unadjusted)"
     )
     
@@ -502,7 +511,7 @@ run_pairwise_ttest <- function(x,
     test_label <- glue("{base_test} {adjust_label}")
     
     
-    method <- glue("Two-sided {test_label} on {response}.")
+    method <- glue("Two-sided {test_label} on {format_response(response)}.")
 
     list(
         test_res   = test_res,
@@ -551,7 +560,7 @@ run_pairwise_paired_ttest <- function(x,
     
     adjust_label <- ifelse(
         p.adjust != "none",
-        glue("({p.adjust} adjusted)"),
+        glue("({str_replace(p.adjust, 'holm', 'Holm')} adjusted)"),
         "(unadjusted)"
     )
     
@@ -562,7 +571,7 @@ run_pairwise_paired_ttest <- function(x,
     
     test_label <- glue("{base_test} {adjust_label}")
     
-    method <- glue("Two-sided {test_label} on {response}.")
+    method <- glue("Two-sided {test_label} on {format_response(response)}.")
     
     list(
         test_res   = test_res,
@@ -610,7 +619,7 @@ run_pairwise_wilcoxon <- function(x,
     
     adjust_label <- ifelse(
         p.adjust != "none",
-        glue("({p.adjust} adjusted)"),
+        glue("({str_replace(p.adjust, 'holm', 'Holm')} adjusted)"),
         "(unadjusted)"
     )
     
@@ -621,7 +630,7 @@ run_pairwise_wilcoxon <- function(x,
     
     test_label <- glue("{base_test} {adjust_label}")
     
-    method <- glue("Two-sided {test_label} on {response}.")
+    method <- glue("Two-sided {test_label} on {format_response(response)}.")
     
     list(
         test_res   = test_res,
@@ -649,7 +658,7 @@ run_pairwise_mann_whitney <- function(x,
     } else {
         reference_sample <- NULL # pairwise comparisons
     }
-
+    
     test <- rstatix::pairwise_wilcox_test(
         data      = x,
         formula   = test_formula,
@@ -670,7 +679,7 @@ run_pairwise_mann_whitney <- function(x,
     
     adjust_label <- ifelse(
         p.adjust != "none",
-        glue("({p.adjust} adjusted)"),
+        glue("({str_replace(p.adjust, 'holm', 'Holm')} adjusted)"),
         "(unadjusted)"
     )
     
@@ -681,7 +690,7 @@ run_pairwise_mann_whitney <- function(x,
     
     test_label <- glue("{base_test} {adjust_label}")
     
-    method <- glue("Two-sided {test_label} on {response}.")
+    method <- glue("Two-sided {test_label} on {format_response(response)}.")
     
     list(
         test_res   = test_res,
@@ -694,8 +703,6 @@ run_pairwise_mann_whitney <- function(x,
 # test the functions ---------
 # x <- read_csv("data/simulated_qPCR_data.csv") |>
 #     mutate(Sample = factor(Sample))
-
-# 
 # run_ancova(x, comparison = "trt.vs.ctrl")
 # run_mixed_effect(x, comparison = "trt.vs.ctrl", equal.var = T)
 # run_anova(x, comparison = "pairwise", response = "ddCq")
@@ -706,6 +713,4 @@ run_pairwise_mann_whitney <- function(x,
 
 # TODO:
 # protect post-hoc test
-# review output list names
-# make FDR adjustment first letter uppercase for Holm
 # when only 2 samples available, run it with adjustment = "none"
