@@ -1649,8 +1649,12 @@ server <- function(input, output, session) {
         non_hk_genes <- dCq_data()$Target |>
             unique() |>
             drop_empty()
-
-        updateSelectInput(session, "select_out_target", choices = non_hk_genes, selected = non_hk_genes[1])
+        
+        # Preserve current selection if it's still a valid (non-HK) gene
+        current <- input$select_out_target
+        selected <- if (!is.null(current) && current %in% non_hk_genes) current else non_hk_genes[1]
+        
+        updateSelectInput(session, "select_out_target", choices = non_hk_genes, selected = selected)
     })
 
 
