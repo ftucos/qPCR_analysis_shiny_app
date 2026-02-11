@@ -439,6 +439,156 @@ ui <- page_fillable(
                     )
                 )
             )
+        ),
+        # Panel 4: Export Tab --------------------------------------------------
+        nav_panel(
+            title = "Export",
+            page_sidebar(
+                fillable = TRUE,
+                sidebar = sidebar(
+                    title = "Export Settings",
+                    open = TRUE,
+                    width = "380px",
+                    
+                    # Plot Styling Section
+                    tags$h6(tags$strong("Plot Styling")),
+                    
+                    # Linewidth slider (0 to 1 pt)
+                    sliderInput(
+                        "export_linewidth",
+                        label = "Line width (pt)",
+                        min = 0, max = 1, value = 0.5, step = 0.1
+                    ),
+                    
+                    # Column width slider
+                    sliderInput(
+                        "export_bar_width",
+                        label = "Column width",
+                        min = 0.3, max = 0.9, value = 0.6, step = 0.05
+                    ),
+                    
+                    # Sample colors (dynamic - rendered by server) in accordion
+                    accordion(
+                        id = "sample_colors_accordion",
+                        open = FALSE,
+                        accordion_panel(
+                            title = "Sample Colors",
+                            icon = icon("palette"),
+                            uiOutput("sample_color_inputs")
+                        )
+                    ),
+                    
+                    # Axis text size slider (5 to 14 pt)
+                    sliderInput(
+                        "export_axis_text_size",
+                        label = "Axis text size (pt)",
+                        min = 5, max = 14, value = 10, step = 1
+                    ),
+                    
+                    hr(),
+                    
+                    # Significance bar display options (moved from Results tab)
+                    conditionalPanel(
+                        condition = "output.n_bio_reps >= 2 && output.n_samples >= 2",
+                        tags$h6(tags$strong("Significance Bars")),
+                        prettySwitch(
+                            "show_signif_bars",
+                            label = "Show significance bars",
+                            fill = TRUE, status = "primary",
+                            value = FALSE
+                        ),
+                        conditionalPanel(
+                            condition = "input.show_signif_bars",
+                            prettySwitch(
+                                "hide_ns_bars",
+                                label = "Hide non-significant (ns)",
+                                fill = TRUE, status = "primary",
+                                value = TRUE
+                            ),
+                            prettySwitch(
+                                "show_exact_pvalue",
+                                label = "Show exact p-values",
+                                fill = TRUE, status = "primary",
+                                value = FALSE
+                            ),
+                            sliderInput(
+                                "export_signif_text_size",
+                                label = "Significance text size (pt)",
+                                min = 5, max = 14, value = 8, step = 1
+                            )
+                        ),
+                        hr()
+                    ),
+                    
+                    # Plot dimensions
+                    tags$h6(tags$strong("Plot Dimensions")),
+                    div(
+                        class = "d-flex gap-2",
+                        numericInput(
+                            "export_plot_width",
+                            label = "Width (cm)",
+                            value = 10, min = 2, max = 30, step = 0.1,
+                            width = "100px"
+                        ),
+                        numericInput(
+                            "export_plot_height",
+                            label = "Height (cm)",
+                            value = 10, min = 2, max = 30, step = 0.1,
+                            width = "100px"
+                        )
+                    ),
+                    
+                    hr(),
+                    
+                    # Download buttons
+                    tags$h6(tags$strong("Download")),
+                    div(
+                        class = "d-flex gap-2 flex-wrap",
+                        downloadButton("download_plot_png", "Plot (PNG)", class = "btn-sm btn-outline-primary"),
+                        downloadButton("download_plot_pdf", "Plot (PDF)", class = "btn-sm btn-outline-primary"),
+                        downloadButton("download_data_xlsx", "Data (XLSX)", class = "btn-sm btn-outline-success")
+                    )
+                ),
+                
+                # Main content area
+                layout_columns(
+                    col_widths = c(12),
+                    row_heights = c("1fr", "1fr"),
+                    
+                    # Static plot preview
+                    card(
+                        full_screen = TRUE,
+                        card_header("Plot Preview"),
+                        plotOutput("export_plot", height = "100%")
+                    ),
+                    
+                    # Data preview tabs
+                    navset_card_tab(
+                        id = "data_preview_tabs",
+                        full_screen = TRUE,
+                        nav_panel(
+                            title = "Raw Cq",
+                            DT::dataTableOutput("preview_raw_cq")
+                        ),
+                        nav_panel(
+                            title = "ΔCq",
+                            DT::dataTableOutput("preview_dCq")
+                        ),
+                        nav_panel(
+                            title = "ΔΔCq",
+                            DT::dataTableOutput("preview_ddCq")
+                        ),
+                        nav_panel(
+                            title = "Statistics",
+                            DT::dataTableOutput("preview_stats")
+                        ),
+                        nav_panel(
+                            title = "Excluded",
+                            DT::dataTableOutput("preview_excluded")
+                        )
+                    )
+                )
+            )
         )
     )
 )
