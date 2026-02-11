@@ -7,6 +7,7 @@ library(rhandsontable)
 library(tidyverse)
 library(plotly)
 library(ggbeeswarm)
+library(ggh4x)
 library(scales)
 library(glue)
 library(DT)
@@ -48,7 +49,7 @@ ui <- page_fillable(
     tags$head(
         tags$link(rel = "stylesheet", type = "text/css", href = "www/custom.css")
     ),
-
+    
     # Main navigation
     navset_tab(
         id = "main_tabs",
@@ -73,7 +74,7 @@ ui <- page_fillable(
                     helpText("Edit 'New Label' to rename samples. Drag the row number to reorder them. Uncheck 'Include' to exclude samples from analysis."),
                     rHandsontableOutput("samples_tab")
                 ),
-
+                
                 # Main content area
                 card(
                     max_height = "500px",
@@ -218,7 +219,7 @@ ui <- page_fillable(
                         condition = "output.n_bio_reps >= 2 && output.n_samples >= 2",
                         hr(),
                         tags$h6(tags$strong("Statistical Analysis")),
-
+                        
                         # Target metric for statistical testing
                         radioGroupButtons(
                             inputId   = "stats_metric",
@@ -233,7 +234,7 @@ ui <- page_fillable(
                             width     = "100%",
                             size      = "sm"
                         ),
-
+                        
                         # Warning for exp data
                         conditionalPanel(
                             condition = "input.stats_metric == 'exp_ddCq'",
@@ -244,7 +245,7 @@ ui <- page_fillable(
                                 "It is recommended to perform statistical analysis on the log space (-ΔCq or -ΔΔCq) values rather than on exponentiated ones for more reliable results."
                             )
                         ),
-
+                        
                         # Omnibus test selection (choices update dynamically via pickerInput with optgroups)
                         div(
                             class = "d-flex justify-content-start align-items-center mb-2",
@@ -265,7 +266,7 @@ ui <- page_fillable(
                                 width = "93%",
                                 options = pickerOptions(container = "body")
                             ),
-
+                            
                             # Tip about test recomendations (shown for dCq with > 2 samples)
                             conditionalPanel(
                                 condition = "input.stats_metric == 'dCq' && output.n_samples > 2",
@@ -287,7 +288,7 @@ ui <- page_fillable(
                                 )
                             )
                         ),
-
+                        
                         # Handle unequal variance toggle (for mixed effect model)
                         conditionalPanel(
                             condition = "output.show_unequal_variance_toggle",
@@ -313,7 +314,7 @@ ui <- page_fillable(
                                 )
                             )
                         ),
-
+                        
                         # Post Hoc comparison type (only shown when > 2 samples)
                         conditionalPanel(
                             condition = "output.show_multiple_comparison_type",
@@ -333,7 +334,7 @@ ui <- page_fillable(
                                 )
                             )
                         ),
-
+                        
                         # Multiple comparison adjustment method
                         # let chose between Benjamini-Hochberg (FDR), Holm (FWER),  none
                         conditionalPanel(
@@ -356,7 +357,7 @@ ui <- page_fillable(
                                 )
                             )
                         ),
-
+                        
                         # Post-hoc test display (dynamically updated)
                         conditionalPanel(
                             condition = "output.show_post_hoc_test",
@@ -600,16 +601,16 @@ server <- function(input, output, session) {
     accent_color <- reactive({
         bslib::bs_get_variables(bslib::bs_current_theme(session), "primary")[[1]]
     })
-
+    
     secondary_color <- reactive({
         bslib::bs_get_variables(bslib::bs_current_theme(session), "secondary")[[1]]
     })
     # Cache (reactiveValues) ---------------------------------------------------
-
+    
     cache <- reactiveValues(
         # raw data, required to add/remove replicate column
         raw_data = empty_raw_data,
-
+        
         # sample control table (rename, reorder, exclude)
         # samples rename, reordering and exclusion should be retrieved from input$samples_tab
         samples_tab = data.frame(
@@ -618,21 +619,21 @@ server <- function(input, output, session) {
             Include   = logical(),
             stringsAsFactors = FALSE
         ),
-
+        
         # list of excluded points
         excluded_point_keys = c(),
         select_ct_targeted  = c(),
         targets_available   = c()
     )
     # Observer: Toggle biological replicates column ----------------------------
-
+    
     observeEvent(input$include_replicates, {
         if (is.null(input$raw_data)) {
             return()
         }
-
+        
         current_data <- hot_to_r(input$raw_data)
-
+        
         if (input$include_replicates) {
             # add replicate column if missing
             if (!"Replicate" %in% names(current_data)) {
@@ -645,19 +646,19 @@ server <- function(input, output, session) {
         }
     })
     # Observer: Load example data ----------------------------------------------
-
+    
     observeEvent(input$load_example, {
         # Wait for rhandsontable to be initialized to prevent infinite loop
         req(input$raw_data)
         
         # Force-enable biological replicates when loading example data
         updatePrettySwitch(session, "include_replicates", value = TRUE)
-
+        
         # Load example data from CSV
         cache$raw_data <- read_csv("data/example_qPCR_data.csv", show_col_types = FALSE)
     })
     # Observer: clean data -----------------------------------------------------
-
+    
     observeEvent(input$clear_data, {
         if (input$include_replicates) {
             cache$raw_data <- empty_raw_data |>
@@ -665,15 +666,15 @@ server <- function(input, output, session) {
         } else {
             cache$raw_data <- empty_raw_data
         }
-
+        
         # reset the lsit of excluded points
         cache$excluded_point_keys <- c()
     })
     # Output: Raw data table ---------------------------------------------------
-
+    
     output$raw_data <- renderRHandsontable({
         req(cache$raw_data)
-
+        
         rhandsontable(
             cache$raw_data,
             rowHeaders = TRUE,
@@ -687,39 +688,39 @@ server <- function(input, output, session) {
             hot_col("Cq", type = "text") |> # type = "text" to allow for Undetermined or other labels
             hot_context_menu(allowRowEdit = TRUE, allowColEdit = FALSE)
     })
-
+    
     # Observer: on raw data edit: ----------------------------------------------
     # 1. cache last `raw_data` and validate Cq values
     # 2. update `cache$samples_tab` when samples change in raw_data while preserving previous edits
-
+    
     observeEvent(input$raw_data, {
         # 1. validate Cq values ------------------------------------------------
         current_data <- hot_to_r(input$raw_data)
-
+        
         original_cq <- current_data$Cq |>
             as.character() |>
             str_trim() |>
             replace_na("") |>
             # ignore trailing 0 in decimals
             str_remove("(?<=[0-9]\\.[0-9]{0,10})0+$")
-
+        
         parsed_cq <- parse_Cq(original_cq) |> replace_na("")
-
+        
         # Find values that changed
         changed_mask <- original_cq != parsed_cq
-
+        
         conversions <- map2_chr(
             original_cq[changed_mask], parsed_cq[changed_mask],
             ~ paste0(.x, " → ", .y)
         ) |>
             unique()
-
+        
         # Update parsed Cq values
         current_data$Cq <- parsed_cq
-
+        
         # Cache updated raw data
         cache$raw_data <- current_data
-
+        
         # Show warning modal if any conversions happened
         if (length(conversions) > 0) {
             showModal(modalDialog(
@@ -734,17 +735,17 @@ server <- function(input, output, session) {
                 footer = modalButton("OK")
             ))
         }
-
+        
         # 2. cache last state of samples_tab -----------------------------------
         cache$samples_tab <- hot_to_r(input$samples_tab)
-
+        
         current_samples <- hot_to_r(input$raw_data)$Sample |>
             unique() |>
             drop_empty()
-
+        
         previous_samples <- cache$samples_tab$Sample
         new_samples <- setdiff(current_samples, previous_samples)
-
+        
         if (length(current_samples) == 0) {
             # No valid samples, keep empty
             cache$samples_tab <- data.frame(
@@ -773,7 +774,7 @@ server <- function(input, output, session) {
     # Output: Sample control table ---------------------------------------------
     output$samples_tab <- renderRHandsontable({
         req(nrow(cache$samples_tab) > 0)
-
+        
         rhandsontable(
             cache$samples_tab,
             rowHeaders = TRUE,
@@ -788,13 +789,13 @@ server <- function(input, output, session) {
             hot_cols(columnSorting = FALSE)
     })
     # Derived Reactive: Processed data (with parsed Cq, renames, sample ordering and exclusions) ----------
-
+    
     cq_data <- reactive({
         req(hot_to_r(input$raw_data))
         req(nrow(hot_to_r(input$samples_tab)) > 0)
-
+        
         samples_metadata <- hot_to_r(input$samples_tab)
-
+        
         hot_to_r(input$raw_data) |>
             mutate(Key = row_number()) |> # add unique Key ID matching raw data rows
             relocate(Key, .before = 1) |>
@@ -803,7 +804,7 @@ server <- function(input, output, session) {
             filter(Include) |>
             # update and reorder sample name
             mutate(Sample = factor(New_Label,
-                levels = unique(samples_metadata$New_Label)
+                                   levels = unique(samples_metadata$New_Label)
             )) |>
             select(-New_Label, -Include) |>
             arrange(Sample) |>
@@ -815,29 +816,29 @@ server <- function(input, output, session) {
             )
     })
     # Observer: Update target selector choices ---------------------------------
-
+    
     observe({
         req(cq_data())
-
+        
         targets <- cq_data()$Target |>
             unique() |>
             drop_empty() |>
             sort()
-
+        
         # if no change in targets, skip update
         req(!identical(targets, cache$targets_available))
-
+        
         # restore previous selection if possible
         if (cache$select_ct_targeted %in% targets) {
             selected <- cache$select_ct_targeted
         } else {
             selected <- targets[1]
         }
-
+        
         # cache last list of targets
         cache$targets_available <- targets
         updateSelectInput(session, "select_ct_target", choices = targets, selected = selected)
-
+        
         selected_hk <- targets[is_HK(targets)]
         updatePickerInput(session, "hk_genes", choices = targets, selected = selected_hk)
     })
@@ -846,28 +847,28 @@ server <- function(input, output, session) {
         cache$select_ct_targeted <- input$select_ct_target
     })
     # Output: Cq Plot and plot title -------------------------------------------
-
+    
     output$ct_plot_title <- renderText({
         req(input$select_ct_target)
         paste("Cq Values for", input$select_ct_target)
     })
-
+    
     output$ct_plot <- renderPlotly({
         df <- cq_data()
         req(df, nrow(df) > 0)
         req(input$select_ct_target)
-
+        
         df_target <- df |>
             filter(Target == input$select_ct_target) |>
             mutate(
                 Keep_label = ifelse(Keep, "Included", "Excluded"),
                 point_type_label = ifelse(Undetected, "Undetected", "Detected"),
             )
-
+        
         n_samples <- df_target$Sample |>
             unique() |>
             length()
-
+        
         df_summary_target <- df_target |>
             filter(Keep) |>
             group_by(across(
@@ -878,10 +879,10 @@ server <- function(input, output, session) {
                 point_type_label = "Mean",
                 Keep_label = NA # initialize empty keep_label to avoid duplication of the legend in ggplotly
             )
-
+        
         # force a minumum of y-axis range of 3 units
         y_limits <- get_Cq_y_limits(df_target$Cq, min_range = 3)
-
+        
         # Pre-compute hover text
         has_replicate <- "Replicate" %in% names(df_target)
         
@@ -916,7 +917,7 @@ server <- function(input, output, session) {
                     Mean Cq: {round(mean, 2)}"
                 )
             })
-
+        
         p <- ggplot(
             df_target,
             aes(
@@ -974,26 +975,26 @@ server <- function(input, output, session) {
                 panel.grid.minor = element_blank(),
                 axis.text.x = element_text(angle = 45, hjust = 1)
             )
-
+        
         # facet by replicate if present
         if ("Replicate" %in% names(df)) {
             p <- p + facet_wrap(~Replicate)
         }
-
+        
         ggplotly(p, tooltip = "text", source = "ct_plot") |>
             event_register("plotly_click") |>
             fix_plotly_legend()
     })
     # Observer: Handle click-to-exclude ----------------------------------------
-
+    
     observeEvent(event_data("plotly_click", source = "ct_plot"), {
         click <- event_data("plotly_click", source = "ct_plot")
         req(click)
         # ignore click on summary points (no key column)
         req("key" %in% names(click))
-
+        
         clicked_key <- click$key
-
+        
         # toggle inclusion/exclusion
         if (clicked_key %in% cache$excluded_point_keys) {
             # currently excluded, include it (remove it from the exclusion list)
@@ -1004,12 +1005,12 @@ server <- function(input, output, session) {
         }
     })
     # Derived Reactive: dCq ----------------------------------------------------
-
+    
     dCq_data <- reactive({
         req(cq_data())
         req(nrow(cq_data()) > 0)
         req(length(input$hk_genes) > 0)
-
+        
         HK_summary <- cq_data() |>
             filter(
                 Keep,
@@ -1040,7 +1041,7 @@ server <- function(input, output, session) {
                 HK_se_pooled = HK_sd_pool * sqrt(1 / (sum(HK_n, na.rm = T))),
                 .groups = "drop"
             )
-
+        
         cq_data() |>
             filter(
                 Keep,
@@ -1053,11 +1054,11 @@ server <- function(input, output, session) {
             )
     })
     # Derived Reactive: dCq summary per individual replicate -------------------
-
+    
     dCq_rep_summary <- reactive({
         req(dCq_data())
         req(nrow(dCq_data()) > 0)
-
+        
         dCq_data() |>
             group_by(across(
                 c("Sample", "Target", any_of("Replicate"))
@@ -1069,18 +1070,18 @@ server <- function(input, output, session) {
                 dCq_mean = mean_handle_inf(dCq),
                 # propagate SD and SE including HK variance/uncertainty.
                 dCq_sd = ifelse(input$propagate_var,
-                    # propagate HK SD
-                    sqrt(Cq_sd^2 + HK_sd_pool^2),
-                    # Compute Cq stats without propagating HK variance/uncertainty.
-                    # This is statistically inaccurate but common in practice because it’s straightforward to compute.
-                    Cq_sd # the same as sd of deltaCq
+                                # propagate HK SD
+                                sqrt(Cq_sd^2 + HK_sd_pool^2),
+                                # Compute Cq stats without propagating HK variance/uncertainty.
+                                # This is statistically inaccurate but common in practice because it’s straightforward to compute.
+                                Cq_sd # the same as sd of deltaCq
                 ),
                 dCq_se = ifelse(input$propagate_var,
-                    # propagate HK SE
-                    sqrt(Cq_se^2 + HK_se_pooled^2),
-                    # Compute Cq stats without propagating HK variance/uncertainty.
-                    # This is statistically inaccurate but common in practice because it’s straightforward to compute.
-                    dCq_sd / sqrt(Cq_n)
+                                # propagate HK SE
+                                sqrt(Cq_se^2 + HK_se_pooled^2),
+                                # Compute Cq stats without propagating HK variance/uncertainty.
+                                # This is statistically inaccurate but common in practice because it’s straightforward to compute.
+                                dCq_sd / sqrt(Cq_n)
                 ),
                 dCq_sd_low  = dCq_mean - dCq_sd,
                 dCq_sd_high = dCq_mean + dCq_sd,
@@ -1100,11 +1101,11 @@ server <- function(input, output, session) {
             mutate(Undetected = Cq_n == 0)
     })
     # Derived Reactive: number of biological replicates ------------------------
-
+    
     n_bio_reps <- reactive({
         req(dCq_data())
         req(nrow(dCq_data()) > 0)
-
+        
         if (input$include_replicates & "Replicate" %in% names(dCq_data())) {
             dCq_data() |>
                 pull("Replicate") |>
@@ -1114,14 +1115,14 @@ server <- function(input, output, session) {
             1
         }
     })
-
+    
     # make it available to javascript
     output$n_bio_reps <- reactive({
         n_bio_reps()
     })
     outputOptions(output, "n_bio_reps", suspendWhenHidden = FALSE)
     # Derived Reactive: number of samples --------------------------------------
-
+    
     n_samples <- reactive({
         req(dCq_data())
         dCq_data() |>
@@ -1129,14 +1130,14 @@ server <- function(input, output, session) {
             unique() |>
             length()
     })
-
+    
     # make it available to javascript
     output$n_samples <- reactive({
         n_samples()
     })
     outputOptions(output, "n_samples", suspendWhenHidden = FALSE)
     # Observe Event: disable biological replicate summary if only one replicate ----------
-
+    
     observeEvent(n_bio_reps(), {
         if (n_bio_reps() > 1) {
             updateRadioGroupButtons(
@@ -1153,7 +1154,7 @@ server <- function(input, output, session) {
         }
     })
     # Observe Event: Update default error bar type when toggling biological replicate summary ----------
-
+    
     observeEvent(input$summarize_bio_reps, {
         if (input$summarize_bio_reps == "aggregate") {
             updateRadioGroupButtons(
@@ -1170,11 +1171,11 @@ server <- function(input, output, session) {
         }
     })
     # Derived Reactive: dCq summary aggregating replicates if present ----------
-
+    
     dCq_summary <- reactive({
         req(dCq_rep_summary())
         req(n_bio_reps() > 1)
-
+        
         dCq_rep_summary() |>
             group_by(across(c("Sample", "Target"))) |>
             summarize(
@@ -1201,36 +1202,36 @@ server <- function(input, output, session) {
             mutate(Undetected = dCq_n == 0)
     })
     # derived reactive: average dCq for reference sample -----------------------
-
+    
     reference_sample_dCq <- reactive({
         req(nrow(dCq_rep_summary()) > 0)
-
+        
         samples_metadata <- hot_to_r(input$samples_tab)
         # at least 2 distinct samples
         req(samples_metadata$New_Label |> unique() |> length() >= 2)
-
+        
         reference_sample <- samples_metadata |>
             first() |>
             pull("New_Label")
-
+        
         dCq_rep_summary() |>
             filter(Sample == reference_sample) |>
             select(Target, any_of("Replicate"),
-                ref_dCq_mean = dCq_mean,
-                ref_dCq_sd = dCq_sd,
-                ref_dCq_se = dCq_se
+                   ref_dCq_mean = dCq_mean,
+                   ref_dCq_sd = dCq_sd,
+                   ref_dCq_se = dCq_se
             )
     })
     # Observe: allow ddCq calculation only if reference sample for slected target is valid ----------
-
+    
     observeEvent(input$select_out_target, {
         req(input$select_out_target)
         req(input$select_out_target)
-
+        
         current_target_ref_dCq <- reference_sample_dCq() |>
             filter(Target == input$select_out_target) |>
             pull("ref_dCq_mean")
-
+        
         if (!all(is.finite(current_target_ref_dCq))) {
             updateRadioGroupButtons(
                 session,
@@ -1245,12 +1246,12 @@ server <- function(input, output, session) {
             )
         }
     })
-
+    
     # Reactive: ddCq data points -----------------------------------------------
-
+    
     ddCq_data <- reactive({
         req(reference_sample_dCq())
-
+        
         dCq_data() |>
             left_join(reference_sample_dCq()) |>
             mutate(
@@ -1261,26 +1262,26 @@ server <- function(input, output, session) {
                 exp_ddCq = 2^-ddCq
             )
     })
-
+    
     ddCq_rep_summary <- reactive({
         req(reference_sample_dCq())
-
+        
         dCq_rep_summary() |>
             left_join(reference_sample_dCq()) |>
             mutate(
                 # Handle Inf - Inf = NaN case   
                 ddCq_mean     = ifelse(is.infinite(dCq_mean) & is.infinite(ref_dCq_mean),
-                                      0,
-                                      dCq_mean - ref_dCq_mean),
+                                       0,
+                                       dCq_mean - ref_dCq_mean),
                 exp_ddCq_mean = 2^-ddCq_mean,
                 ddCq_sd = ifelse(input$propagate_var,
-                    # propagate control SD
-                    sqrt(dCq_sd^2 + ref_dCq_sd^2),
-                    dCq_sd # the same as sd of ddCq
+                                 # propagate control SD
+                                 sqrt(dCq_sd^2 + ref_dCq_sd^2),
+                                 dCq_sd # the same as sd of ddCq
                 ),
                 ddCq_se = ifelse(input$propagate_var,
-                    sqrt(dCq_se^2 + ref_dCq_se^2),
-                    dCq_se
+                                 sqrt(dCq_se^2 + ref_dCq_se^2),
+                                 dCq_se
                 ),
                 ddCq_sd_low      = ddCq_mean - ddCq_sd,
                 ddCq_sd_high     = ddCq_mean + ddCq_sd,
@@ -1293,11 +1294,11 @@ server <- function(input, output, session) {
                 exp_ddCq_se_high = 2^-(ddCq_mean - ddCq_se)
             )
     })
-
+    
     ddCq_summary <- reactive({
         req(ddCq_rep_summary())
         req(n_bio_reps() > 1)
-
+        
         ddCq_rep_summary() |>
             group_by(across(c("Sample", "Target"))) |>
             summarize(
@@ -1324,117 +1325,117 @@ server <- function(input, output, session) {
             mutate(Undetected = ddCq_n == 0)
     })
     # Output Flags: Conditional panel visibility for statistical tests ---------
-
+    
     stats_ui_flags <- reactive({
         req(input$stats_test)
-
+        
         # Determine all UI flags based on selected test
         flags <- switch(input$stats_test,
-            # --- ANCOVA ---
-            "ancova" = list(
-                show_unequal_variance_toggle    = FALSE,
-                show_multiple_comparison_type   = n_samples() > 2,
-                show_multiple_comparison_adjust = FALSE,
-                show_post_hoc_test              = TRUE
-            ),
-
-            # --- Mixed Effect Model ---
-            "mixed_effect" = list(
-                show_unequal_variance_toggle    = TRUE,
-                show_multiple_comparison_type   = TRUE,
-                show_multiple_comparison_adjust = FALSE,
-                show_post_hoc_test              = TRUE
-            ),
-
-            # --- ANOVA ---
-            "anova" = list(
-                show_unequal_variance_toggle    = FALSE,
-                show_multiple_comparison_type   = TRUE,
-                show_multiple_comparison_adjust = FALSE,
-                show_post_hoc_test              = TRUE
-            ),
-
-            # --- Kruskal-Wallis ---
-            "kruskal" = list(
-                show_unequal_variance_toggle    = FALSE,
-                show_multiple_comparison_type   = TRUE,
-                show_multiple_comparison_adjust = isTRUE(input$stats_comparison == "pairwise"),
-                show_post_hoc_test              = TRUE
-            ),
-
-            # --- Pairwise t-test ---
-            "pairwise_ttest" = list(
-                show_unequal_variance_toggle    = TRUE,
-                show_multiple_comparison_type   = TRUE,
-                show_multiple_comparison_adjust = TRUE,
-                show_post_hoc_test              = FALSE
-            ),
-
-            # --- Pairwise paired t-test ---
-            "pairwise_paired_ttest" = list(
-                show_unequal_variance_toggle    = FALSE,
-                show_multiple_comparison_type   = TRUE,
-                show_multiple_comparison_adjust = TRUE,
-                show_post_hoc_test              = FALSE
-            ),
-
-            # --- Pairwise Wilcoxon (signed-rank) ---
-            "pairwise_wilcoxon" = list(
-                show_unequal_variance_toggle    = FALSE,
-                show_multiple_comparison_type   = TRUE,
-                show_multiple_comparison_adjust = TRUE,
-                show_post_hoc_test              = FALSE
-            ),
-
-            # --- Pairwise Wilcoxon-Mann-Whitney ---
-            "pairwise_mann_whitney" = list(
-                show_unequal_variance_toggle    = FALSE,
-                show_multiple_comparison_type   = TRUE,
-                show_multiple_comparison_adjust = TRUE,
-                show_post_hoc_test              = FALSE
-            ),
-
-            # --- Default fallback ---
-            list(
-                show_unequal_variance_toggle    = FALSE,
-                show_multiple_comparison_type   = FALSE,
-                show_multiple_comparison_adjust = FALSE,
-                show_post_hoc_test              = FALSE
-            )
+                        # --- ANCOVA ---
+                        "ancova" = list(
+                            show_unequal_variance_toggle    = FALSE,
+                            show_multiple_comparison_type   = n_samples() > 2,
+                            show_multiple_comparison_adjust = FALSE,
+                            show_post_hoc_test              = TRUE
+                        ),
+                        
+                        # --- Mixed Effect Model ---
+                        "mixed_effect" = list(
+                            show_unequal_variance_toggle    = TRUE,
+                            show_multiple_comparison_type   = TRUE,
+                            show_multiple_comparison_adjust = FALSE,
+                            show_post_hoc_test              = TRUE
+                        ),
+                        
+                        # --- ANOVA ---
+                        "anova" = list(
+                            show_unequal_variance_toggle    = FALSE,
+                            show_multiple_comparison_type   = TRUE,
+                            show_multiple_comparison_adjust = FALSE,
+                            show_post_hoc_test              = TRUE
+                        ),
+                        
+                        # --- Kruskal-Wallis ---
+                        "kruskal" = list(
+                            show_unequal_variance_toggle    = FALSE,
+                            show_multiple_comparison_type   = TRUE,
+                            show_multiple_comparison_adjust = isTRUE(input$stats_comparison == "pairwise"),
+                            show_post_hoc_test              = TRUE
+                        ),
+                        
+                        # --- Pairwise t-test ---
+                        "pairwise_ttest" = list(
+                            show_unequal_variance_toggle    = TRUE,
+                            show_multiple_comparison_type   = TRUE,
+                            show_multiple_comparison_adjust = TRUE,
+                            show_post_hoc_test              = FALSE
+                        ),
+                        
+                        # --- Pairwise paired t-test ---
+                        "pairwise_paired_ttest" = list(
+                            show_unequal_variance_toggle    = FALSE,
+                            show_multiple_comparison_type   = TRUE,
+                            show_multiple_comparison_adjust = TRUE,
+                            show_post_hoc_test              = FALSE
+                        ),
+                        
+                        # --- Pairwise Wilcoxon (signed-rank) ---
+                        "pairwise_wilcoxon" = list(
+                            show_unequal_variance_toggle    = FALSE,
+                            show_multiple_comparison_type   = TRUE,
+                            show_multiple_comparison_adjust = TRUE,
+                            show_post_hoc_test              = FALSE
+                        ),
+                        
+                        # --- Pairwise Wilcoxon-Mann-Whitney ---
+                        "pairwise_mann_whitney" = list(
+                            show_unequal_variance_toggle    = FALSE,
+                            show_multiple_comparison_type   = TRUE,
+                            show_multiple_comparison_adjust = TRUE,
+                            show_post_hoc_test              = FALSE
+                        ),
+                        
+                        # --- Default fallback ---
+                        list(
+                            show_unequal_variance_toggle    = FALSE,
+                            show_multiple_comparison_type   = FALSE,
+                            show_multiple_comparison_adjust = FALSE,
+                            show_post_hoc_test              = FALSE
+                        )
         )
         flags
     })
-
+    
     # Expose individual flags as outputs for JavaScript conditional panels
     output$show_unequal_variance_toggle <- reactive({
         stats_ui_flags()$show_unequal_variance_toggle
     })
     outputOptions(output, "show_unequal_variance_toggle", suspendWhenHidden = FALSE)
-
+    
     output$show_multiple_comparison_type <- reactive({
         stats_ui_flags()$show_multiple_comparison_type
     })
     outputOptions(output, "show_multiple_comparison_type", suspendWhenHidden = FALSE)
-
+    
     output$show_multiple_comparison_adjust <- reactive({
         stats_ui_flags()$show_multiple_comparison_adjust
     })
     outputOptions(output, "show_multiple_comparison_adjust", suspendWhenHidden = FALSE)
-
+    
     output$show_post_hoc_test <- reactive({
         stats_ui_flags()$show_post_hoc_test
     })
     outputOptions(output, "show_post_hoc_test", suspendWhenHidden = FALSE)
     # Observer: Update stats_test choices based on metric and sample count ----------
-
+    
     observeEvent(list(input$stats_metric, n_samples(), n_bio_reps()), {
         req(input$stats_metric)
         req(n_samples() >= 2)
-
+        
         metric <- input$stats_metric
         # Non-parametric tests require at least 5 biological replicates
         include_nonparam <- n_bio_reps() >= 5
-
+        
         # Determine available tests and default based on metric and sample count
         if (n_samples() > 2) {
             # > 2 samples
@@ -1491,53 +1492,53 @@ server <- function(input, output, session) {
                 default <- "pairwise_ttest"
             }
         }
-
+        
         # Freeze the reactive value to prevent stats_result from running with stale test value
         freezeReactiveValue(input, "stats_test")
         updatePickerInput(session, "stats_test", choices = choices, selected = default)
     })
     # Output: Post-hoc test description based on omnibus test and comparison ----------
-
+    
     output$stats_posthoc <- renderText({
         req(input$stats_test)
-
+        
         test <- input$stats_test
         comparison <- input$stats_comparison
         handle_variance <- isTRUE(input$stats_unequal_variance)
-
+        
         # Determine post-hoc test based on omnibus and comparison type
         posthoc <- switch(test,
-            "ancova" = if (comparison == "pairwise") "Tukey HSD" else "Dunnett",
-            "mixed_effect" = if (handle_variance) {
-                if (comparison == "pairwise") "Dunnett T3" else "Dunnett adjusted for unequal var."
-            } else {
-                if (comparison == "pairwise") "Tukey HSD" else "Dunnett"
-            },
-            "anova" = if (comparison == "pairwise") "Tukey HSD" else "Dunnett",
-            "kruskal" = "Dunn's test",
-            ""
+                          "ancova" = if (comparison == "pairwise") "Tukey HSD" else "Dunnett",
+                          "mixed_effect" = if (handle_variance) {
+                              if (comparison == "pairwise") "Dunnett T3" else "Dunnett adjusted for unequal var."
+                          } else {
+                              if (comparison == "pairwise") "Tukey HSD" else "Dunnett"
+                          },
+                          "anova" = if (comparison == "pairwise") "Tukey HSD" else "Dunnett",
+                          "kruskal" = "Dunn's test",
+                          ""
         )
-
+        
         posthoc
     })
-
+    
     # Reactive: Run Statistical Test -------------------------------------------
-
+    
     stats_result <- reactive({
         req(input$stats_test)
         req(input$select_out_target)
         req(n_bio_reps() >= 2)
         req(n_samples() >= 2)
-
+        
         # statistical test settings
         test       <- input$stats_test
         response   <- input$stats_metric
         equal_var  <- !isTRUE(input$stats_unequal_variance)
         comparison <- input$stats_comparison
         p_adjust   <- input$stats_multiple_comparison_adjust
-
-
-
+        
+        
+        
         # Prepare data based on metric
         if (response == "dCq") {
             # For dCq tests, we need dCq with reference sample info
@@ -1547,7 +1548,7 @@ server <- function(input, output, session) {
                 # Rename to match expected column names in statistical functions
                 rename(dCq = dCq_mean, ref_dCq = ref_dCq_mean) |>
                 drop_na(dCq, ref_dCq)
-
+            
         } else {
             # For ddCq or exp_ddCq, use ddCq data
             data <- ddCq_rep_summary() |>
@@ -1556,7 +1557,7 @@ server <- function(input, output, session) {
                 rename(ddCq = ddCq_mean, exp_ddCq = exp_ddCq_mean) |>
                 drop_na(ddCq, exp_ddCq)
         }
-      
+        
         # for ANCOVA and paired t-test drop entire replicate run
         if (test %in% c("ancova", "pairwise_paired_ttest")) {
             # Find replicates with any Inf/undetected values
@@ -1590,11 +1591,11 @@ server <- function(input, output, session) {
                 filter(is.finite(.data[[response]]))
             n_dropped_points <- n_before - nrow(data_filtered)
             n_dropped_reps <- 0
-        
+            
             # Use filtered data for analysis
             data <- data_filtered
         }
-
+        
         # calculate samples after removing NA and eventual Inf for the selected target
         n_samples <- data$Sample |> unique() |> length()
         req(n_samples > 1)
@@ -1602,14 +1603,14 @@ server <- function(input, output, session) {
         # Run appropriate test based on selection
         tryCatch({
             result <- switch(test,
-                "ancova" = run_ancova(data, response = response, comparison = comparison),
-                "mixed_effect" = run_mixed_effect(data, response = response, comparison = comparison, equal.var = equal_var),
-                "anova" = run_anova(data, response = response,comparison = comparison),
-                "kruskal" = run_kruskal(data, response = response, comparison = comparison, p.adjust = p_adjust),
-                "pairwise_ttest" = run_pairwise_ttest(data, response = response, comparison = comparison, equal.var = equal_var, p.adjust = p_adjust),
-                "pairwise_paired_ttest" = run_pairwise_paired_ttest(data, response = response, comparison = comparison, p.adjust = p_adjust),
-                "pairwise_wilcoxon" = run_pairwise_wilcoxon(data, response = response, comparison = comparison, p.adjust = p_adjust),
-                "pairwise_mann_whitney" = run_pairwise_mann_whitney(data, response = response, comparison = comparison, p.adjust = p_adjust)
+                             "ancova" = run_ancova(data, response = response, comparison = comparison),
+                             "mixed_effect" = run_mixed_effect(data, response = response, comparison = comparison, equal.var = equal_var),
+                             "anova" = run_anova(data, response = response,comparison = comparison),
+                             "kruskal" = run_kruskal(data, response = response, comparison = comparison, p.adjust = p_adjust),
+                             "pairwise_ttest" = run_pairwise_ttest(data, response = response, comparison = comparison, equal.var = equal_var, p.adjust = p_adjust),
+                             "pairwise_paired_ttest" = run_pairwise_paired_ttest(data, response = response, comparison = comparison, p.adjust = p_adjust),
+                             "pairwise_wilcoxon" = run_pairwise_wilcoxon(data, response = response, comparison = comparison, p.adjust = p_adjust),
+                             "pairwise_mann_whitney" = run_pairwise_mann_whitney(data, response = response, comparison = comparison, p.adjust = p_adjust)
             )
             # Add dropped count to result for warning display
             result$n_dropped_points <- n_dropped_points
@@ -1621,29 +1622,29 @@ server <- function(input, output, session) {
             print(e)
         })
     })
-
+    
     # Output: Stats card title with current target ------------------------------
-
+    
     output$stats_card_title <- renderText({
         req(input$select_out_target)
         paste("Statistical Results for", input$select_out_target)
     })
-
+    
     # Output: Flag for omnibus test type (for conditional UI) ------------------
-
+    
     output$has_omnibus_test <- reactive({
         req(input$stats_test)
         input$stats_test %in% c("ancova", "mixed_effect", "anova", "kruskal")
     })
     outputOptions(output, "has_omnibus_test", suspendWhenHidden = FALSE)
-
+    
     # Output: Dropped count for Inf values (for conditional warning) -----------
     output$stats_dropped_count <- reactive({
         req(stats_result())
         max(stats_result()$n_dropped_points, stats_result()$n_dropped_reps)
     })
     outputOptions(output, "stats_dropped_count", suspendWhenHidden = FALSE)
-
+    
     # Output: Warning text for dropped Inf values ------------------------------
     output$stats_dropped_warning <- renderText({
         req(stats_result())
@@ -1658,9 +1659,9 @@ server <- function(input, output, session) {
             glue("{n_dropped_points} data point{ifelse(n_dropped_points > 1, 's', '')} with undetected values (Inf) excluded from the analysis.")
         }
     })
-
+    
     # Output: Omnibus badge (brief p-value indicator) --------------------------
-
+    
     output$stats_omnibus_badge <- renderUI({
         req(stats_result()$omnibus)
         req(stats_result()$omnibus_pvalue)
@@ -1668,30 +1669,30 @@ server <- function(input, output, session) {
         p <- stats_result()$omnibus_pvalue
         badge_class <- ifelse(p <= 0.05, "badge bg-success", "badge bg-secondary")
         badge_text  <- ifelse(p < 0.001,
-                                "p < 0.001",
-                                paste0("p = ", signif(p, digits = 2))
-                            )
+                              "p < 0.001",
+                              paste0("p = ", signif(p, digits = 2))
+        )
         
         div(class = badge_class, badge_text)
     })
-
+    
     # Output: Omnibus test label -----------------------------------------------
-
+    
     output$stats_omnibus_label <- renderText({
         req(stats_result()$omnibus)
         req(stats_result()$omnibus_label)
         stats_result()$omnibus_label |>
-        # strip p-value that will be added in a label
+            # strip p-value that will be added in a label
             str_remove(", p = [0-9\\-e\\.]+$")
-            
+        
     })
-
+    
     # Output: Omnibus test table -----------------------------------------------
-
+    
     output$stats_omnibus_table <- DT::renderDataTable({
         req(stats_result())
         req(stats_result()$omnibus)
-
+        
         stats_result()$omnibus |>
             DT::datatable(
                 # remove additional elements such as paging, search etc.
@@ -1719,9 +1720,9 @@ server <- function(input, output, session) {
                 digits = 2
             )
     })
-
+    
     # Output: Comparison section title -----------------------------------------
-
+    
     output$stats_comparison_title <- renderText({
         req(stats_result())
         
@@ -1734,12 +1735,12 @@ server <- function(input, output, session) {
             "Warning: Unknown Test"
         }
     })
-
+    
     # Output: Results table (post-hoc or pairwise) -----------------------------
-
+    
     output$stats_results_table <- DT::renderDataTable({
         req(stats_result())
-
+        
         # Get the appropriate results table
         results_df <- if (!is.null(stats_result()$post_hoc)) {
             stats_result()$post_hoc
@@ -1748,7 +1749,7 @@ server <- function(input, output, session) {
         } else {
             return(NULL)
         }
-
+        
         # Identify numeric columns for rounding
         numeric_cols <- results_df |> select_if(is.numeric) |> colnames()
         
@@ -1783,19 +1784,19 @@ server <- function(input, output, session) {
                 fontWeight = "bold"
             )
     })
-
+    
     # Output: Method description -----------------------------------------------
-
+    
     output$stats_method <- renderText({
         req(stats_result())
         req(stats_result()$method)
         stats_result()$method
     })
-
+    
     # Output: Results Plot -----------------------------------------------------
     observeEvent(dCq_data(), {
         req(dCq_data(), nrow(dCq_data()) > 0)
-
+        
         non_hk_genes <- dCq_data()$Target |>
             unique() |>
             drop_empty()
@@ -1806,8 +1807,8 @@ server <- function(input, output, session) {
         
         updateSelectInput(session, "select_out_target", choices = non_hk_genes, selected = selected)
     })
-
-
+    
+    
     output$res_plot_title <- renderText({
         req(input$select_out_target)
         req(input$out_metric)
@@ -1818,58 +1819,58 @@ server <- function(input, output, session) {
             "ddCq" ~ "ΔΔCq",
             "exp_ddCq" ~ "2^-ΔΔCq",
         )
-
+        
         paste(y_label, " Values for", input$select_out_target)
     })
-
+    
     output$res_plot <- renderPlotly({
         req(input$select_out_target)
         req(input$stat_type)
         req(input$out_metric)
         req(nrow(dCq_data()) > 0)
         req(nrow(dCq_rep_summary()) > 0)
-
+        
         if (input$summarize_bio_reps == "split" & input$out_metric %in% c("dCq", "exp_dCq")) {
             df_target <- dCq_data() |>
                 filter(Target == input$select_out_target)
-
+            
             y_value <- input$out_metric
-
+            
             df_summary_target <- dCq_rep_summary() |>
                 filter(Target == input$select_out_target)
         } else if (input$summarize_bio_reps == "aggregate" & input$out_metric %in% c("dCq", "exp_dCq")) {
             req(n_bio_reps() > 1)
             req(nrow(dCq_summary()) > 0)
-
+            
             df_target <- dCq_rep_summary() |>
                 filter(Target == input$select_out_target)
-
+            
             y_value <- glue("{input$out_metric}_mean")
-
+            
             df_summary_target <- dCq_summary() |>
                 filter(Target == input$select_out_target)
         } else if (input$summarize_bio_reps == "split" & input$out_metric %in% c("ddCq", "exp_ddCq")) {
             df_target <- ddCq_data() |>
                 filter(Target == input$select_out_target)
-
+            
             y_value <- input$out_metric
-
+            
             df_summary_target <- ddCq_rep_summary() |>
                 filter(Target == input$select_out_target)
         } else if (input$summarize_bio_reps == "aggregate" & input$out_metric %in% c("ddCq", "exp_ddCq")) {
             req(n_bio_reps() > 1)
             req(nrow(ddCq_summary()) > 0)
-
+            
             df_target <- ddCq_rep_summary() |>
                 filter(Target == input$select_out_target)
-
+            
             y_value <- glue("{input$out_metric}_mean")
-
+            
             df_summary_target <- ddCq_summary() |>
                 filter(Target == input$select_out_target)
         }
-
-
+        
+        
         y_label <- case_match(
             input$out_metric,
             "dCq" ~ "-ΔCq",
@@ -1877,16 +1878,16 @@ server <- function(input, output, session) {
             "ddCq" ~ "-ΔΔCq",
             "exp_ddCq" ~ "2^-ΔΔCq",
         )
-
+        
         # used to invert sign when plotting -dCq
         if (input$out_metric %in% c("dCq", "ddCq")) {
             sign <- -1
         } else {
             sign <- 1
         }
-
+        
         y_summary_value <- glue("{input$out_metric}_mean")
-
+        
         if (input$stat_type == "none") {
             error_bar_high  <- NULL
             error_bar_low   <- NULL
@@ -1896,10 +1897,10 @@ server <- function(input, output, session) {
             error_bar_low   <- glue("{input$out_metric}_{input$stat_type}_low")
             error_bar_label <- glue("{str_to_upper(input$stat_type)}: ({round(df_summary_target[[error_bar_low]], 2)}; {round(df_summary_target[[error_bar_high]], 2)})")
         }
-
+        
         # compute plot y limits -----------------------------------------------
         values <- df_target[[y_value]]
-
+        
         # append Error bars values to compute y limits
         if (input$stat_type != "none") {
             values <- values |>
@@ -1908,16 +1909,16 @@ server <- function(input, output, session) {
                     df_summary_target |> pull(error_bar_high)
                 ))
         }
-
+        
         y_limits <- get_y_limits(values, metric = input$out_metric)
-
+        
         undetected_present <- any(!is.finite(values[!is.na(values)]))
         if (input$out_metric == "dCq" & undetected_present) {
             y_min_label <- glue("≤{y_limits[1]}")
         } else {
             y_min_label <- glue("{y_limits[1]}")
         }
-
+        
         # plot -----------------------------------------------------------------
         # add text label for hover label
         has_replicate <- "Replicate" %in% names(df_target)
@@ -1937,7 +1938,7 @@ server <- function(input, output, session) {
                     {y_label}: {round(sign*.data[[y_value]], 2)}"
                 )
             })
-
+        
         df_summary_target <- df_summary_target |>
             mutate(text = glue(
                 "{Sample}
@@ -1945,8 +1946,8 @@ server <- function(input, output, session) {
                 Mean {y_label}: {round(sign*.data[[y_summary_value]], 2)}
                 {error_bar_label}"
             ))
-
-
+        
+        
         # add reference sample line
         if (input$out_metric == "exp_ddCq") {
             p <- ggplot() +
@@ -1957,7 +1958,7 @@ server <- function(input, output, session) {
         } else {
             p <- ggplot()
         }
-
+        
         # don't plot average bar for dCq value (0 has no meaning)
         if (input$out_metric != "dCq") {
             p <- p +
@@ -1973,7 +1974,7 @@ server <- function(input, output, session) {
                     width = 0.6
                 )
         }
-
+        
         p <- p +
             geom_beeswarm(
                 data = df_target,
@@ -1986,7 +1987,7 @@ server <- function(input, output, session) {
                 ),
                 method = "compactswarm", preserve.data.axis = TRUE
             )
-
+        
         if (input$out_metric == "dCq") {
             p <- p +
                 # add mean points
@@ -2003,7 +2004,7 @@ server <- function(input, output, session) {
                     size = 4
                 )
         }
-
+        
         p <- p +
             scale_shape_manual(
                 values = c("Detected" = 16, "Undetected" = 1, "Mean" = 4),
@@ -2030,7 +2031,7 @@ server <- function(input, output, session) {
                 panel.grid.minor = element_blank(),
                 axis.text.x = element_text(angle = 45, hjust = 1)
             )
-
+        
         # add error bars if requested
         if (input$stat_type != "none") {
             p <- p +
@@ -2046,12 +2047,12 @@ server <- function(input, output, session) {
                     color = accent_color()
                 )
         }
-
+        
         # facet by replicate if present
         if (input$summarize_bio_reps == "split" & ("Replicate" %in% names(df_target))) {
-            p <- p + facet_wrap(~Replicate)
+            p <- p + ggh4x::facet_wrap2(~Replicate, axes = "all")
         }
-
+        
         ggplotly(p, tooltip = "text") |>
             fix_plotly_legend()
     })
