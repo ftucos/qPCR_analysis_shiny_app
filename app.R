@@ -744,7 +744,7 @@ server <- function(input, output, session) {
             drop_empty()
         
         previous_samples <- cache$samples_tab$Sample
-        new_samples <- setdiff(current_samples, previous_samples)
+        # new_samples <- setdiff(current_samples, previous_samples)
         
         if (length(current_samples) == 0) {
             # No valid samples, keep empty
@@ -1879,15 +1879,12 @@ server <- function(input, output, session) {
             "exp_ddCq" ~ "2^-ΔΔCq",
         )
         
-        # used to invert sign when plotting -dCq
-        if (input$out_metric %in% c("dCq", "ddCq")) {
-            sign <- -1
-        } else {
-            sign <- 1
-        }
+        # Sign inversion for -dCq / -ddCq display
+        sign <- if (input$out_metric %in% c("dCq", "ddCq")) -1 else 1
         
         y_summary_value <- glue("{input$out_metric}_mean")
         
+        # Error bar column names
         if (input$stat_type == "none") {
             error_bar_high  <- NULL
             error_bar_low   <- NULL
@@ -1898,10 +1895,8 @@ server <- function(input, output, session) {
             error_bar_label <- glue("{str_to_upper(input$stat_type)}: ({round(df_summary_target[[error_bar_low]], 2)}; {round(df_summary_target[[error_bar_high]], 2)})")
         }
         
-        # compute plot y limits -----------------------------------------------
+        # Compute y limits
         values <- df_target[[y_value]]
-        
-        # append Error bars values to compute y limits
         if (input$stat_type != "none") {
             values <- values |>
                 append(c(
@@ -1913,10 +1908,11 @@ server <- function(input, output, session) {
         y_limits <- get_y_limits(values, metric = input$out_metric)
         
         undetected_present <- any(!is.finite(values[!is.na(values)]))
-        if (input$out_metric == "dCq" & undetected_present) {
-            y_min_label <- glue("≤{y_limits[1]}")
+        y_min_label <- if (input$out_metric == "dCq" & undetected_present) {
+            glue("≤{y_limits[1]}")
         } else {
-            y_min_label <- glue("{y_limits[1]}")
+            glue("{y_limits[1]}")
+        }
         }
         
         # plot -----------------------------------------------------------------
@@ -1947,8 +1943,7 @@ server <- function(input, output, session) {
                 {error_bar_label}"
             ))
         
-        
-        # add reference sample line
+        # Reference line
         if (input$out_metric == "exp_ddCq") {
             p <- ggplot() +
                 geom_hline(yintercept = 1, linetype = "dashed", color = "gray30")
@@ -1959,15 +1954,12 @@ server <- function(input, output, session) {
             p <- ggplot()
         }
         
-        # don't plot average bar for dCq value (0 has no meaning)
+        # Average bars (not for dCq — zero has no meaning)
         if (input$out_metric != "dCq") {
             p <- p +
                 geom_bar(
                     data = df_summary_target,
-                    aes(
-                        x = Sample, y = sign * .data[[y_summary_value]],
-                        text = text
-                    ),
+                    aes(x = Sample, y = sign * .data[[y_summary_value]], text = text),
                     stat = "identity",
                     fill = accent_color(),
                     alpha = 0.5,
@@ -1975,6 +1967,7 @@ server <- function(input, output, session) {
                 )
         }
         
+        # Beeswarm points
         p <- p +
             geom_beeswarm(
                 data = df_target,
@@ -1983,14 +1976,12 @@ server <- function(input, output, session) {
                     text = text,
                     color = point_type_label,
                     shape = point_type_label
-                    # label on hover
                 ),
                 method = "compactswarm", preserve.data.axis = TRUE
             )
         
         if (input$out_metric == "dCq") {
             p <- p +
-                # add mean points
                 geom_point(
                     data = df_summary_target |>
                         mutate(point_type_label = "Mean"),
@@ -2014,11 +2005,7 @@ server <- function(input, output, session) {
                 values = c("Detected" = secondary_color(), "Undetected" = "#C03A2B", "Mean" = accent_color()),
                 name = "",
             ) +
-            labs(
-                x = "Sample",
-                y = y_label,
-                title = NULL
-            ) +
+            labs(x = "Sample", y = y_label, title = NULL) +
             scale_y_continuous(
                 expand = expansion(mult = 0.05, add = 0),
                 labels = function(x) ifelse(x == y_limits[1], y_min_label, x),
@@ -2032,7 +2019,7 @@ server <- function(input, output, session) {
                 axis.text.x = element_text(angle = 45, hjust = 1)
             )
         
-        # add error bars if requested
+        # Add error bars if requested
         if (input$stat_type != "none") {
             p <- p +
                 geom_errorbar(
@@ -2048,7 +2035,7 @@ server <- function(input, output, session) {
                 )
         }
         
-        # facet by replicate if present
+        # Facet by replicate if present
         if (input$summarize_bio_reps == "split" & ("Replicate" %in% names(df_target))) {
             p <- p + ggh4x::facet_wrap2(~Replicate, axes = "all")
         }
