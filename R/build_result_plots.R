@@ -275,10 +275,10 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
         signif_data <- prepare_signif_data(
             stats_result,
             samples = df_target$Sample,
-            # TODO: adjust max based on errorbars (or datapoints?) and define step size
-            y_max = max(sign * df_summary_target[[y_summary_value]], na.rm = TRUE),
+            y_max = max(sign * df_target[[y_value]], na.rm = TRUE),
             hide_ns = isTRUE(hide_ns),
-            show_p_value = isTRUE(show_exact_pvalue)
+            show_p_value = isTRUE(show_exact_pvalue),
+            step = step
         )
         
         if (!is.null(signif_data) && nrow(signif_data) > 0) {
