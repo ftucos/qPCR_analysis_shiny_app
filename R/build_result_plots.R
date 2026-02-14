@@ -276,15 +276,12 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
             stats_result,
             samples = df_target$Sample,
             # TODO: adjust max based on errorbars (or datapoints?) and define step size
-            y_max = sign * max(df_summary_target[[y_summary_value]], na.rm = TRUE),
+            y_max = max(sign * df_summary_target[[y_summary_value]], na.rm = TRUE),
             hide_ns = isTRUE(hide_ns),
             show_p_value = isTRUE(show_exact_pvalue)
         )
         
         if (!is.null(signif_data) && nrow(signif_data) > 0) {
-            signif_data <- signif_data |>
-                mutate(y.position = sign * abs(y.position))
-            
             p <- p +
                 ggsignif::geom_signif(
                     data = signif_data,
