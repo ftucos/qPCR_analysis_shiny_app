@@ -178,8 +178,8 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
     # Build title and subtitle
     plot_title <- plot_data$target_name
     plot_subtitle <- NULL
-    if (isTRUE(show_signif_bars) && !is.null(stats_result) && !is.null(stats_result$omnibus_method)) {
-        plot_subtitle <- stats_result$omnibus_method
+    if (isTRUE(show_signif_bars) && !is.null(stats_result) && !is.null(stats_result$omnibus_label)) {
+        plot_subtitle <- stats_result$omnibus_label
     }
     
     # Reference line
@@ -275,6 +275,7 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
         signif_data <- prepare_signif_data(
             stats_result,
             samples = df_target$Sample,
+            # TODO: adjust max based on errorbars (or datapoints?) and define step size
             y_max = sign * max(df_summary_target[[y_summary_value]], na.rm = TRUE),
             hide_ns = isTRUE(hide_ns),
             show_p_value = isTRUE(show_exact_pvalue)

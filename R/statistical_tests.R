@@ -136,13 +136,12 @@ run_ancova <- function(x,
     method <- glue("Two-sided ANCOVA on {format_response(response)} with reference sample {format_response(response)} covariate adjustment, followed by {post_hoc_method} post-hoc test.")
 
     list(
-        omnibus         = omnibus_res,
-        omnibus_pvalue  = omnibus_pvalue,
-        omnibus_method  = omnibus_method,
+        test_res        = post_hoc_res,
+        test_label      = post_hoc_method,
+        method          = method,
+        omnibus_res     = omnibus_res,
         omnibus_label   = omnibus_label,
-        post_hoc        = post_hoc_res,
-        post_hoc_method = post_hoc_method,
-        method          = method
+        omnibus_pvalue  = omnibus_pvalue
     )
 }
 
@@ -272,13 +271,12 @@ run_mixed_effect <- function(x,
     method <- glue("Two-sided {omnibus_method} on {format_response(response)} with Replicate as random effect intercept, followed by {post_hoc_method} post-hoc test.")
 
     list(
-        omnibus         = omnibus_res,
-        omnibus_pvalue  = omnibus_pvalue,
-        omnibus_method  = omnibus_method,
+        test_res        = post_hoc_res,
+        test_label      = post_hoc_method,
+        method          = method,
+        omnibus_res     = omnibus_res,
         omnibus_label   = omnibus_label,
-        post_hoc        = post_hoc_res,
-        post_hoc_method = post_hoc_method,
-        method          = method
+        omnibus_pvalue  = omnibus_pvalue
     )
 }
 
@@ -355,13 +353,12 @@ run_anova <- function(x,
     method <- glue("Two-sided one-way ANOVA on {format_response(response)}, followed by {post_hoc_method} post-hoc test.")
 
     list(
-        omnibus         = omnibus_res,
-        omnibus_pvalue  = omnibus_pvalue,
-        omnibus_method  = omnibus_method,
+        test_res        = post_hoc_res,
+        test_label      = post_hoc_method,
+        method          = method,
+        omnibus_res     = omnibus_res,
         omnibus_label   = omnibus_label,
-        post_hoc        = post_hoc_res,
-        post_hoc_method = post_hoc_method,
-        method          = method
+        omnibus_pvalue  = omnibus_pvalue
     )
 }
 
@@ -444,13 +441,12 @@ run_kruskal <- function(x,
     )
 
     list(
-        omnibus         = omnibus_res,
-        omnibus_pvalue  = omnibus_pvalue,
-        omnibus_method  = omnibus_method,
+        test_res        = post_hoc_res,
+        test_label      = post_hoc_method,
+        method          = method,
+        omnibus_res     = omnibus_res,
         omnibus_label   = omnibus_label,
-        post_hoc        = post_hoc_res,
-        post_hoc_method = post_hoc_method,
-        method          = method
+        omnibus_pvalue  = omnibus_pvalue
     )
 }
 

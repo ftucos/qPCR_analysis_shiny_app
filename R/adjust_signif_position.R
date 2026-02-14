@@ -91,19 +91,13 @@ adjust_y_position <- function(res, y_base = NULL, step = NULL) {
 }
 
 # Prepare significance data for plotting
-# Handles both omnibus+post_hoc and direct test results
 prepare_signif_data <- function(stats_result, samples, y_max, 
                                  hide_ns = FALSE, show_p_value = FALSE,
                                  step = NULL) {
     
-    # Get the comparison results (post_hoc or test_res)
-    if (!is.null(stats_result$post_hoc)) {
-        res <- stats_result$post_hoc
-    } else if (!is.null(stats_result$test_res)) {
-        res <- stats_result$test_res
-    } else {
-        return(NULL)
-    }
+    # Get the comparison results
+    res <- stats_result$test_res
+    if (is.null(res)) return(NULL)
     
     # Ensure we have required columns
     if (!all(c("group1", "group2", "Significance") %in% names(res))) {

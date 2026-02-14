@@ -13,6 +13,7 @@ library(ggh4x)
 library(scales)
 library(glue)
 library(DT)
+library(openxlsx)
 
 # Example Data =================================================================
 
@@ -1667,7 +1668,7 @@ server <- function(input, output, session) {
     # Output: Omnibus badge (brief p-value indicator) --------------------------
     
     output$stats_omnibus_badge <- renderUI({
-        req(stats_result()$omnibus)
+        req(stats_result()$omnibus_res)
         req(stats_result()$omnibus_pvalue)
         
         p <- stats_result()$omnibus_pvalue
@@ -1683,7 +1684,7 @@ server <- function(input, output, session) {
     # Output: Omnibus test label -----------------------------------------------
     
     output$stats_omnibus_label <- renderText({
-        req(stats_result()$omnibus)
+        req(stats_result()$omnibus_res)
         req(stats_result()$omnibus_label)
         stats_result()$omnibus_label |>
             # strip p-value that will be added in a label
@@ -1695,9 +1696,9 @@ server <- function(input, output, session) {
     
     output$stats_omnibus_table <- DT::renderDataTable({
         req(stats_result())
-        req(stats_result()$omnibus)
+        req(stats_result()$omnibus_res)
         
-        stats_result()$omnibus |>
+        stats_result()$omnibus_res |>
             DT::datatable(
                 # remove additional elements such as paging, search etc.
                 options = list(
@@ -1718,7 +1719,7 @@ server <- function(input, output, session) {
             ) |>
             DT::formatSignif(
                 columns = intersect(
-                    names(stats_result()$omnibus),
+                    names(stats_result()$omnibus_res),
                     c("Sum Sq", "Mean Sq", "Df", "Numerator Df", "Denominator Df", "F-value", "Chi-sq", "p-value")
                 ),
                 digits = 2
@@ -1729,14 +1730,12 @@ server <- function(input, output, session) {
     
     output$stats_comparison_title <- renderText({
         req(stats_result())
+        req(stats_result()$test_label)
         
-        if (!is.null(stats_result()$post_hoc_method)) {
-            paste("Post-hoc:", stats_result()$post_hoc_method)
-        } else if (!is.null(stats_result()$test_label)) {
-            stats_result()$test_label
+        if (!is.null(stats_result()$omnibus_res)) {
+            paste("Post-hoc:", stats_result()$test_label)
         } else {
-            warning("Unknown Test")
-            "Warning: Unknown Test"
+            stats_result()$test_label
         }
     })
     
@@ -1745,14 +1744,9 @@ server <- function(input, output, session) {
     output$stats_results_table <- DT::renderDataTable({
         req(stats_result())
         
-        # Get the appropriate results table
-        results_df <- if (!is.null(stats_result()$post_hoc)) {
-            stats_result()$post_hoc
-        } else if (!is.null(stats_result()$test_res)) {
-            stats_result()$test_res
-        } else {
-            return(NULL)
-        }
+        # Get the comparison results table
+        results_df <- stats_result()$test_res
+        req(results_df)
         
         # Identify numeric columns for rounding
         numeric_cols <- results_df |> select_if(is.numeric) |> colnames()
@@ -2018,99 +2012,7 @@ server <- function(input, output, session) {
     output$export_plot <- renderPlot({
         export_plot_obj()
     })
-        } else {
-            p <- ggplot()
-        }
-        
-        # Average bars (not for dCq — zero has no meaning)
-        if (input$out_metric != "dCq") {
-            p <- p +
-                geom_bar(
-                    data = df_summary_target,
-                    aes(x = Sample, y = sign * .data[[y_summary_value]], text = text),
-                    stat = "identity",
-                    fill = accent_color(),
-                    alpha = 0.5,
-                    width = 0.6
-                )
-        }
-        
-        # Beeswarm points
-        p <- p +
-            geom_beeswarm(
-                data = df_target,
-                aes(
-                    x = Sample, y = sign * .data[[y_value]],
-                    text = text,
-                    color = point_type_label,
-                    shape = point_type_label
-                ),
-                method = "compactswarm", preserve.data.axis = TRUE
-            )
-        
-        if (input$out_metric == "dCq") {
-            p <- p +
-                geom_point(
-                    data = df_summary_target |>
-                        mutate(point_type_label = "Mean"),
-                    aes(
-                        x = Sample, y = sign * .data[[y_summary_value]],
-                        text = text,
-                        shape = point_type_label,
-                        color = point_type_label
-                    ),
-                    inherit.aes = F,
-                    size = 4
-                )
-        }
-        
-        p <- p +
-            scale_shape_manual(
-                values = c("Detected" = 16, "Undetected" = 1, "Mean" = 4),
-                name = "",
-            ) +
-            scale_color_manual(
-                values = c("Detected" = secondary_color(), "Undetected" = "#C03A2B", "Mean" = accent_color()),
-                name = "",
-            ) +
-            labs(x = "Sample", y = y_label, title = NULL) +
-            scale_y_continuous(
-                expand = expansion(mult = 0.05, add = 0),
-                labels = function(x) ifelse(x == y_limits[1], y_min_label, x),
-                oob = function(x, range) squish_infinite_to_val(x, range, to_value = abs(y_limits[1]))
-            ) +
-            coord_cartesian(ylim = y_limits) +
-            theme_minimal(base_size = 14) +
-            theme(
-                legend.position = "bottom",
-                panel.grid.minor = element_blank(),
-                axis.text.x = element_text(angle = 45, hjust = 1)
-            )
-        
-        # Add error bars if requested
-        if (input$stat_type != "none") {
-            p <- p +
-                geom_errorbar(
-                    data = df_summary_target,
-                    aes(
-                        x    = Sample,
-                        ymin = sign * .data[[error_bar_low]],
-                        ymax = sign * .data[[error_bar_high]]
-                    ),
-                    inherit.aes = F,
-                    width = 0.4,
-                    color = accent_color()
-                )
-        }
-        
-        # Facet by replicate if present
-        if (input$summarize_bio_reps == "split" & ("Replicate" %in% names(df_target))) {
-            p <- p + ggh4x::facet_wrap2(~Replicate, axes = "all")
-        }
-        
-        ggplotly(p, tooltip = "text") |>
-            fix_plotly_legend()
-    })
+    
 }
 
 # Run App ======================================================================
