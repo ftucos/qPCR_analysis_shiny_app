@@ -82,7 +82,13 @@ res <- df |>
 
 res.1 <- adjust_y_position(res)
 
-ggplot(df, aes(x = Sample, y=  dCq)) +
-    geom_jitter(width = 0.2) +
+ggplot() +
+    geom_jitter(data = df, aes(x = Sample, y=  dCq), width = 0.2) +
+    ggsignif::geom_signif(data = res.1, aes(xmin = group1, xmax = group2, y_position = y.position, annotations = p.adj),
+                          manual = T, inherit.aes = F,
+                          tip_length = 0, extend_line = -0.01 #vjust = 0.5
+                          )
+
+
     stat_pvalue_manual(data = res.1,bracket.shorten = 0.1, tip.length = 0)
     

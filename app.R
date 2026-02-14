@@ -3,10 +3,12 @@ library(bslib)
 library(shinyWidgets)
 library(bsicons)
 library(rhandsontable)
+library(colourpicker)
 
 library(tidyverse)
 library(plotly)
 library(ggbeeswarm)
+library(ggsignif)
 library(ggh4x)
 library(scales)
 library(glue)
@@ -41,6 +43,8 @@ source("R/is_HK.R")
 source("R/handle_undetected_stats.R")
 source("R/squish_infinite_to_val.R")
 source("R/statistical_tests.R")
+source("R/adjust_signif_position.R")
+source("R/build_result_plots.R")
 
 # UI Definition ================================================================
 
@@ -1823,13 +1827,15 @@ server <- function(input, output, session) {
         paste(y_label, " Values for", input$select_out_target)
     })
     
-    output$res_plot <- renderPlotly({
+    # Shared Reactive: Plot data preparation (used by Results + Export) --------
+    result_plot_data <- reactive({
         req(input$select_out_target)
         req(input$stat_type)
         req(input$out_metric)
         req(nrow(dCq_data()) > 0)
         req(nrow(dCq_rep_summary()) > 0)
         
+        # Select data based on metric and bio-rep summarisation mode
         if (input$summarize_bio_reps == "split" & input$out_metric %in% c("dCq", "exp_dCq")) {
             df_target <- dCq_data() |>
                 filter(Target == input$select_out_target)
@@ -1890,8 +1896,8 @@ server <- function(input, output, session) {
             error_bar_low   <- NULL
             error_bar_label <- ""
         } else {
-            error_bar_high  <- glue("{input$out_metric}_{input$stat_type}_high")
-            error_bar_low   <- glue("{input$out_metric}_{input$stat_type}_low")
+            error_bar_high <- glue("{input$out_metric}_{input$stat_type}_high")
+            error_bar_low  <- glue("{input$out_metric}_{input$stat_type}_low")
             error_bar_label <- glue("{str_to_upper(input$stat_type)}: ({round(df_summary_target[[error_bar_low]], 2)}; {round(df_summary_target[[error_bar_high]], 2)})")
         }
         
@@ -1913,43 +1919,105 @@ server <- function(input, output, session) {
         } else {
             glue("{y_limits[1]}")
         }
-        }
         
-        # plot -----------------------------------------------------------------
-        # add text label for hover label
-        has_replicate <- "Replicate" %in% names(df_target)
-        
+        # Mark point types
         df_target <- df_target |>
-            mutate(point_type_label = ifelse(Undetected, "Undetected", "Detected")) |>
-            mutate(text = if (has_replicate) {
-                glue(
-                    "{Sample} ({Replicate})
-                    Target: {Target}
-                    {y_label}: {round(sign*.data[[y_value]], 2)}"
-                )
-            } else {
-                glue(
-                    "{Sample}
-                    Target: {Target}
-                    {y_label}: {round(sign*.data[[y_value]], 2)}"
+            mutate(point_type_label = ifelse(Undetected, "Undetected", "Detected"))
+        
+        list(
+            df_target          = df_target,
+            df_summary         = df_summary_target,
+            y_value            = y_value,
+            y_summary_value    = y_summary_value,
+            y_label            = y_label,
+            sign               = sign,
+            error_bar_high     = error_bar_high,
+            error_bar_low      = error_bar_low,
+            y_limits           = y_limits,
+            y_min_label        = y_min_label,
+            error_bar_label    = error_bar_label,
+            out_metric         = input$out_metric,
+            stat_type          = input$stat_type,
+            summarize_bio_reps = input$summarize_bio_reps,
+            target_name        = input$select_out_target
+        )
+    })
+    
+    output$res_plot <- renderPlotly({
+        d <- result_plot_data()
+        p <- build_results_plot(d, accent_color(), secondary_color())
+        
+        ggplotly(p, tooltip = "text") |>
+            fix_plotly_legend()
+    })
+    
+    # Export Tab Server Logic ==================================================
+    
+    # Reactive: Get unique samples for color pickers
+    export_samples <- reactive({
+        req(cq_data())
+        levels(cq_data()$Sample)
+    })
+    
+    # Output: Dynamic sample color inputs
+    output$sample_color_inputs <- renderUI({
+        samples <- export_samples()
+        req(length(samples) > 0)
+        
+        # Generate a color palette for samples
+        n_samples <- length(samples)
+        default_colors <- scales::hue_pal()(n_samples)
+        
+        tagList(
+            lapply(seq_along(samples), function(i) {
+                colourInput(
+                    inputId = paste0("sample_color_", i),
+                    label = samples[i],
+                    value = default_colors[i],
+                    showColour = "both",
+                    palette = "square"
                 )
             })
+        )
+    })
+    
+    sample_colors <- reactive({
+        samples <- export_samples()
+        req(length(samples) > 0)
         
-        df_summary_target <- df_summary_target |>
-            mutate(text = glue(
-                "{Sample}
-                Target: {Target}
-                Mean {y_label}: {round(sign*.data[[y_summary_value]], 2)}
-                {error_bar_label}"
-            ))
+        n <- length(samples)
+        default_colors <- scales::hue_pal()(n)
         
-        # Reference line
-        if (input$out_metric == "exp_ddCq") {
-            p <- ggplot() +
-                geom_hline(yintercept = 1, linetype = "dashed", color = "gray30")
-        } else if (input$out_metric == "ddCq") {
-            p <- ggplot() +
-                geom_hline(yintercept = 0, linetype = "dashed", color = "gray30")
+        colors <- sapply(seq_along(samples), function(i) {
+            input[[paste0("sample_color_", i)]] %||% default_colors[i]
+        })
+        setNames(colors, samples)
+    })
+    
+    # Reactive: Generate export plot
+    export_plot_obj <- reactive({
+        d <- result_plot_data()
+        
+        build_export_plot(
+            plot_data      = d,
+            colors         = sample_colors(),
+            lw             = input$export_linewidth %||% 0.5,
+            axis_text_size = input$export_axis_text_size %||% 10,
+            signif_text_size = input$export_signif_text_size %||% 8,
+            bar_width      = input$export_bar_width %||% 0.6,
+            plot_width     = (input$export_plot_width %||% 10) / 2.54,
+            plot_height    = (input$export_plot_height %||% 10) / 2.54,
+            show_signif_bars = isTRUE(input$show_signif_bars),
+            stats_result   = stats_result(),
+            hide_ns        = isTRUE(input$hide_ns_bars),
+            show_exact_pvalue = isTRUE(input$show_exact_pvalue)
+        )
+    })
+    
+    # Output: Export plot
+    output$export_plot <- renderPlot({
+        export_plot_obj()
+    })
         } else {
             p <- ggplot()
         }
