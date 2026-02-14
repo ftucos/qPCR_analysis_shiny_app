@@ -177,6 +177,7 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
     
     # Build title and subtitle
     plot_title <- plot_data$target_name
+    
     plot_subtitle <- NULL
     if (isTRUE(show_signif_bars) && !is.null(stats_result) && !is.null(stats_result$omnibus_label)) {
         plot_subtitle <- stats_result$omnibus_label
@@ -272,6 +273,10 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
     
     # Significance bars
     if (isTRUE(show_signif_bars) && !is.null(stats_result) && is.null(stats_result$error)) {
+        # Step size: convert text height (pt) to data units
+        y_range <- diff(y_limits)
+        step <- signif_text_size / (plot_height * 72) * y_range * 1.8
+        
         signif_data <- prepare_signif_data(
             stats_result,
             samples = df_target$Sample,
@@ -293,11 +298,27 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
                     ),
                     manual = TRUE,
                     textsize = signif_text_size / ggplot2::.pt,
-                    vjust = 0.5,
+                    vjust = 0,
                     tip_length = 0, extend_line = -0.01,
                     margin_top = 0.1,
                     size = lw
                 )
+            
+            # Add bottom margin to the lowest header element to make room for bars
+            signif_top <- max(signif_data$y.position) + step
+            overflow <- signif_top - y_limits[2]
+            if (overflow > 0) {
+                margin_pt <- overflow / y_range * plot_height * 72
+                if (!is.null(plot_subtitle)) {
+                    p <- p + theme(plot.subtitle = element_text(
+                        margin = margin(b = margin_pt, unit = "pt")
+                    ))
+                } else {
+                    p <- p + theme(plot.title = element_text(
+                        margin = margin(b = margin_pt, unit = "pt")
+                    ))
+                }
+            }
         }
     }
     
