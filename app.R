@@ -533,13 +533,13 @@ ui <- page_fillable(
                         numericInput(
                             "export_plot_width",
                             label = "Width (cm)",
-                            value = 10, min = 2, max = 30, step = 0.1,
+                            value = 4, min = 1, max = 30, step = 0.1,
                             width = "100px"
                         ),
                         numericInput(
                             "export_plot_height",
                             label = "Height (cm)",
-                            value = 10, min = 2, max = 30, step = 0.1,
+                            value = 4, min = 2, max = 30, step = 0.1,
                             width = "100px"
                         )
                     ),
@@ -577,20 +577,19 @@ ui <- page_fillable(
                             DT::dataTableOutput("preview_raw_cq")
                         ),
                         nav_panel(
-                            title = "ΔCq",
-                            DT::dataTableOutput("preview_dCq")
+                            title = "Technical Replicates",
+                            DT::dataTableOutput("preview_technical")
                         ),
                         nav_panel(
-                            title = "ΔΔCq",
-                            DT::dataTableOutput("preview_ddCq")
+                            title = "Bio Rep Averages",
+                            DT::dataTableOutput("preview_bio_rep")
                         ),
                         nav_panel(
-                            title = "Statistics",
-                            DT::dataTableOutput("preview_stats")
-                        ),
-                        nav_panel(
-                            title = "Excluded",
-                            DT::dataTableOutput("preview_excluded")
+                            title = "Summary",
+                            conditionalPanel(
+                                condition = "output.n_bio_reps >= 2",
+                                DT::dataTableOutput("preview_summary")
+                            )
                         )
                     )
                 )
@@ -1016,7 +1015,7 @@ server <- function(input, output, session) {
         req(nrow(cq_data()) > 0)
         req(length(input$hk_genes) > 0)
         
-        HK_summary <- cq_data() |>
+        HK_per_gene <- cq_data() |>
             filter(
                 Keep,
                 Target %in% input$hk_genes
@@ -1030,8 +1029,10 @@ server <- function(input, output, session) {
                 HK_sd   = sd(Cq, na.rm = TRUE),
                 HK_n    = length(na.omit(Cq)), # sample size for each gene
                 .groups = "drop"
-            ) |>
-            # summarize all HKs per sample
+            )
+        
+        # Aggregate all HKs per sample
+        HK_summary <- HK_per_gene |>
             group_by(across(
                 c("Sample", any_of("Replicate"))
             )) |>
@@ -1047,7 +1048,15 @@ server <- function(input, output, session) {
                 .groups = "drop"
             )
         
-        cq_data() |>
+        # Per-HK gene average columns (only if >1 HK gene)
+        if (length(input$hk_genes) > 1) {
+            HK_wide <- HK_per_gene |>
+                mutate(col_name = paste0("HK_mean_", Target, "_Cq")) |>
+                select(-HK_sd, -HK_n, -Target) |>
+                pivot_wider(names_from = col_name, values_from = HK_mean)
+        }
+        
+        result <- cq_data() |>
             filter(
                 Keep,
                 !Target %in% input$hk_genes
@@ -1057,6 +1066,13 @@ server <- function(input, output, session) {
                 dCq     = Cq - HK_mean,
                 exp_dCq = 2^-dCq
             )
+        
+        # Join per-HK gene columns if >1 HK gene
+        if (length(input$hk_genes) > 1) {
+            result <- result |> left_join(HK_wide)
+        }
+        
+        result
     })
     # Derived Reactive: dCq summary per individual replicate -------------------
     
@@ -1070,8 +1086,10 @@ server <- function(input, output, session) {
             )) |>
             summarize(
                 Cq_n    = n_valid_Cq(Cq),
+                Cq_mean = mean_handle_inf(Cq),
                 Cq_sd   = sd_handle_inf(Cq),
                 Cq_se   = Cq_sd / sqrt(Cq_n),
+                HK_mean_Cq = mean_handle_inf(HK_mean),
                 dCq_mean = mean_handle_inf(dCq),
                 # propagate SD and SE including HK variance/uncertainty.
                 dCq_sd = ifelse(input$propagate_var,
@@ -1988,6 +2006,12 @@ server <- function(input, output, session) {
         setNames(colors, samples)
     })
     
+    # Update default plot dimensions based on sample count (1 cm per sample, 4 cm height)
+    observeEvent(n_samples(), {
+        req(n_samples() >= 2)
+        updateNumericInput(session, "export_plot_width", value = n_samples())
+    })
+    
     # Reactive: Generate export plot
     export_plot_obj <- reactive({
         d <- result_plot_data()
@@ -2012,7 +2036,207 @@ server <- function(input, output, session) {
     output$export_plot <- renderPlot({
         export_plot_obj()
     })
+    # Export Data Reactives (shared by preview tables and XLSX download) ========
     
+    # Replace Inf/-Inf with 9E+99/-9E+99 (not supported by Excel or DT)
+    sanitize_inf <- function(df) {
+        df |> mutate(across(where(is.numeric), ~ ifelse(is.infinite(.), sign(.) * 9E+99, .)))
+    }
+    
+    export_raw_cq <- reactive({
+        req(cq_data())
+        cq_data() |>
+            mutate(Excluded = !Keep) |>
+            select(-Key, -Keep, -Undetected) |>
+            sanitize_inf()
+    })
+    
+    export_technical <- reactive({
+        req(ddCq_data())
+        ddCq_data() |>
+            rename(HK_mean_Cq = HK_mean, ref_mean_dCq = ref_dCq_mean) |>
+            select(any_of("Replicate"), Sample, Target,
+                   Cq, HK_mean_Cq,
+                   starts_with("HK_mean_") & ends_with("_Cq") & !matches("^HK_mean_Cq$"),
+                   dCq, exp_dCq, ref_mean_dCq,
+                   ddCq, exp_ddCq) |>
+            sanitize_inf()
+    })
+    
+    export_bio_rep <- reactive({
+        req(ddCq_rep_summary())
+        ddCq_rep_summary() |>
+            mutate(Cq_n = as.integer(Cq_n)) |>
+            select(any_of("Replicate"), Sample, Target,
+                   Cq_n, Cq_mean, Cq_sd, Cq_se, HK_mean_Cq,
+                   dCq_mean, dCq_sd, dCq_se,
+                   exp_dCq_mean, exp_dCq_sd_low, exp_dCq_sd_high, exp_dCq_se_low, exp_dCq_se_high,
+                   ref_mean_dCq = ref_dCq_mean,
+                   ddCq_mean, ddCq_sd, ddCq_se,
+                   exp_ddCq_mean, exp_ddCq_sd_low, exp_ddCq_sd_high, exp_ddCq_se_low, exp_ddCq_se_high) |>
+            sanitize_inf()
+    })
+    
+    export_summary <- reactive({
+        req(n_bio_reps() > 1)
+        ddCq_summary() |>
+            mutate(ddCq_n = as.integer(ddCq_n)) |>
+            select(-matches("^(dCq|ddCq)_(sd|se)_(low|high)$")) |>
+            sanitize_inf()
+    })
+    
+    # Data Preview Tables ======================================================
+    
+    output$preview_raw_cq <- DT::renderDataTable({
+        df <- export_raw_cq()
+        df |>
+            DT::datatable(
+                options = list(pageLength = 10, scrollX = TRUE),
+                rownames = FALSE,
+                class = "compact stripe"
+            )
+    })
+    
+    output$preview_technical <- DT::renderDataTable({
+        df <- export_technical()
+        df |>
+            DT::datatable(
+                options = list(pageLength = 10, scrollX = TRUE),
+                rownames = FALSE,
+                class = "compact stripe"
+            ) |>
+            DT::formatRound(columns = names(df)[sapply(df, is.numeric)], digits = 4)
+    })
+    
+    output$preview_bio_rep <- DT::renderDataTable({
+        df <- export_bio_rep()
+        df |>
+            DT::datatable(
+                options = list(pageLength = 10, scrollX = TRUE),
+                rownames = FALSE,
+                class = "compact stripe"
+            ) |>
+            DT::formatRound(columns = names(df)[sapply(df, is.numeric)], digits = 4)
+    })
+    
+    output$preview_summary <- DT::renderDataTable({
+        df <- export_summary()
+        df |>
+            DT::datatable(
+                options = list(pageLength = 10, scrollX = TRUE),
+                rownames = FALSE,
+                class = "compact stripe"
+            ) |>
+            DT::formatRound(columns = names(df)[sapply(df, is.numeric)], digits = 4)
+    })
+    
+    # Download Handlers ========================================================
+    
+    # Download: Plot as PNG
+    output$download_plot_png <- downloadHandler(
+        filename = function() {
+            paste0("qPCR_plot_", input$select_out_target, "_", Sys.Date(), ".png")
+        },
+        content = function(file) {
+            plot_width <- (input$export_plot_width %||% 10) / 2.54  # convert cm to inches
+            plot_height <- (input$export_plot_height %||% 10) / 2.54  # convert cm to inches
+            
+            ggsave(
+                file,
+                plot = export_plot_obj(),
+                width = plot_width + 1,  # Add margin for axis labels
+                height = plot_height + 1,
+                dpi = 300,
+                bg = "white"
+            )
+        }
+    )
+    
+    # Download: Plot as PDF
+    output$download_plot_pdf <- downloadHandler(
+        filename = function() {
+            paste0("qPCR_plot_", input$select_out_target, "_", Sys.Date(), ".pdf")
+        },
+        content = function(file) {
+            plot_width <- (input$export_plot_width %||% 10) / 2.54  # convert cm to inches
+            plot_height <- (input$export_plot_height %||% 10) / 2.54  # convert cm to inches
+            
+            ggsave(
+                file,
+                plot = export_plot_obj(),
+                width = plot_width + 1,
+                height = plot_height + 1,
+                device = cairo_pdf
+            )
+        }
+    )
+    
+    # Download: Data as XLSX
+    output$download_data_xlsx <- downloadHandler(
+        filename = function() {
+            paste0("qPCR_data_", Sys.Date(), ".xlsx")
+        },
+        content = function(file) {
+            wb <- createWorkbook()
+            
+            # Sheet 1: Raw Cq data
+            addWorksheet(wb, "Raw Cq")
+            writeData(wb, "Raw Cq", export_raw_cq())
+            
+            # Sheet 2: Technical Replicates
+            addWorksheet(wb, "Technical Replicates")
+            writeData(wb, "Technical Replicates", export_technical())
+            
+            # Sheet 3: Bio Rep Averages
+            addWorksheet(wb, "Bio Rep Averages")
+            writeData(wb, "Bio Rep Averages", export_bio_rep())
+            
+            # Sheet 4: Summary (if ≥2 bio reps)
+            tryCatch({
+                if (n_bio_reps() > 1) {
+                    addWorksheet(wb, "Summary")
+                    writeData(wb, "Summary", export_summary())
+                }
+            }, error = function(e) NULL)
+            
+            # Sheet 5: Statistics (if available)
+            tryCatch({
+                if (!is.null(stats_result()) && is.null(stats_result()$error)) {
+                    addWorksheet(wb, "Statistics")
+                    row <- 1
+                    
+                    # Omnibus results first (if present)
+                    if (!is.null(stats_result()$omnibus_res)) {
+                        omnibus_header <- paste("Omnibus:", stats_result()$omnibus_label %||% "")
+                        writeData(wb, "Statistics", data.frame(x = omnibus_header), startRow = row, colNames = FALSE)
+                        row <- row + 1
+                        writeData(wb, "Statistics", stats_result()$omnibus_res, startRow = row)
+                        row <- row + nrow(stats_result()$omnibus_res) + 2  # gap row
+                    }
+                    
+                    # Comparison results
+                    if (!is.null(stats_result()$test_res)) {
+                        comp_header <- if (!is.null(stats_result()$omnibus_res)) {
+                            paste("Post-hoc:", stats_result()$test_label %||% "")
+                        } else {
+                            stats_result()$test_label %||% "Pairwise Comparisons"
+                        }
+                        writeData(wb, "Statistics", data.frame(x = comp_header), startRow = row, colNames = FALSE)
+                        row <- row + 1
+                        writeData(wb, "Statistics", stats_result()$test_res, startRow = row)
+                        row <- row + nrow(stats_result()$test_res) + 2  # gap row
+                    }
+                    
+                    # Method description
+                    if (!is.null(stats_result()$method)) {
+                        writeData(wb, "Statistics", data.frame(x = stats_result()$method), startRow = row, colNames = FALSE)
+                    }
+                }
+            }, error = function(e) NULL)
+            
+            saveWorkbook(wb, file, overwrite = TRUE)
+        }
+    )
 }
 
 # Run App ======================================================================
