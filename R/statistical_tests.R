@@ -88,8 +88,6 @@ run_ancova <- function(x,
         ) |>
         mutate(Term = str_replace(Term, "ref_dCq", "Covariate (Reference dCq)"))
 
-
-
     omnibus_label <- glue(
         "ANCOVA (adj. ref dCq): Sample F({sample_df},{residuals_df}) = {sample_f_value}, p = {prettyNum(signif(omnibus_pvalue, 2))}",
         sample_df      = omnibus_res$Df[1],
@@ -142,6 +140,36 @@ run_ancova <- function(x,
         omnibus_res     = omnibus_res,
         omnibus_label   = omnibus_label,
         omnibus_pvalue  = omnibus_pvalue
+    )
+}
+
+run_ancova_2_sample <- function(x, response = c("dCq")) {
+
+    response <- match.arg(response)
+
+    test_formula <- dCq ~ Sample + ref_dCq
+
+    test <- aov(test_formula, data = x)
+
+    test_res <- broom::tidy(test) |>
+        rename(
+            Term       = term,
+            Df         = df,
+            `Sum Sq`   = sumsq,
+            `Mean Sq`  = meansq,
+            `F-value`  = statistic,
+            `p-value`  = p.value
+        ) |>
+        mutate(Term = str_replace(Term, "ref_dCq", "Covariate (Reference dCq)"))
+
+    test_label <- "ANCOVA"
+
+    method <- glue("Two-sided ANCOVA on {format_response(response)} with reference sample {format_response(response)} covariate adjustment.")
+
+    list(
+        test_res        = test_res,
+        test_label      = test_method,
+        method          = method
     )
 }
 
@@ -516,6 +544,45 @@ run_pairwise_ttest <- function(x,
     )
 }
 
+
+# t-test (2 samples) --------------------------------------------------------------
+# For ddCq or exp_ddCq (independent samples, no omnibus)
+run_ttest <- function(x,
+                      response  = c("ddCq", "exp_ddCq"),
+                      equal.var = TRUE) {
+    
+    response <- match.arg(response)
+    stopifnot(is.logical(equal.var), length(equal.var) == 1L, !is.na(equal.var))
+    
+    test_formula <- reformulate("Sample", response = response)
+    
+    
+    test <- rstatix::t_test(
+        data = x,
+        formula = test_formula,
+        var.equal = equal.var
+    )
+    
+    test_res <- test |>
+        select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
+               `p-value` = p) |>
+        mutate(Significance = to_significance(`p-value`))
+    
+    test_label <- ifelse(
+        equal.var,
+        "t-test",
+        "one-sample t-test"
+    )
+    
+    method <- glue("Two-sided {test_label} on {format_response(response)}.")
+    
+    list(
+        test_res   = test_res,
+        test_label = test_label,
+        method     = method
+    )
+}
+
 # Pairwise paired t-test -------------------------------------------------------
 # For dCq with biological replicates (paired by Replicate)
 
@@ -576,6 +643,40 @@ run_pairwise_paired_ttest <- function(x,
     )
 }
 
+
+# Pairwise paired t-test -------------------------------------------------------
+# For dCq with biological replicates (paired by Replicate)
+
+run_paired_ttest <- function(x,
+                             response = c("dCq")) {
+    
+    response   <- match.arg(response)
+    test_formula <- reformulate("Sample", response = response)
+    
+    
+    test <- rstatix::t_test(
+        data      = x |> arrange(Replicate), # ensure proper pairing
+        formula   = test_formula,
+        paired    = T,
+    )
+    
+    test_res <- test |>
+        select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
+               `p-value` = p) |>
+        mutate(Significance = to_significance(`p-value`))
+    
+    test_label <- "paired t-test"
+    
+    method <- glue("Two-sided paired t-test on {format_response(response)}.")
+    
+    list(
+        test_res   = test_res,
+        test_label = test_label,
+        method     = method
+    )
+}
+
+
 # Pairwise Wilcoxon signed-rank test -------------------------------------------
 # Non-parametric paired test for dCq with replicates
 run_pairwise_wilcoxon <- function(x,
@@ -627,6 +728,36 @@ run_pairwise_wilcoxon <- function(x,
     test_label <- glue("{base_test} {adjust_label}")
     
     method <- glue("Two-sided {test_label} on {format_response(response)}.")
+    
+    list(
+        test_res   = test_res,
+        test_label = test_label,
+        method     = method
+    )
+}
+
+# Wilcoxon signed-rank test -------------------------------------------
+# Non-parametric paired test for dCq with replicates
+run_wilcoxon <- function(x, response = c("dCq")) {
+    
+    response   <- match.arg(response)
+
+    test_formula <- reformulate("Sample", response = response)
+    
+    test <- rstatix::wilcox_test(
+        data      = x |> arrange(Replicate), # ensure proper pairing
+        formula   = test_formula,
+        paired    = T,
+    )
+    
+    test_res <- test |>
+        select(Term = ".y.", group1, group2, `V-value` = statistic,
+               `p-value` = p) |>
+        mutate(Significance = to_significance(`p-value`))
+
+    test_label <- "Wilcoxon signed-rank test"
+    
+    method <- glue("Two-sided Wilcoxon signed-rank test on {format_response(response)}.")
     
     list(
         test_res   = test_res,
@@ -695,11 +826,42 @@ run_pairwise_mann_whitney <- function(x,
     )
 }
 
+# Mann-Whitney U test -------------------------------------------------
+# Non-parametric unpaired test for ddCq
+
+run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
+    
+    response   <- match.arg(response)
+
+    test_formula <- reformulate("Sample", response = response)
+    
+    test <- rstatix::wilcox_test(
+        data      = x,
+        formula   = test_formula,
+        paired    = F
+    )
+    
+    test_res <- test |>
+        select(Term = ".y.", group1, group2, `U-value` = statistic,
+               `p-value` = p) |>
+        mutate(Significance = to_significance(`p-value`))
+    
+    test_label <- "Wilcoxon-Mann–Whitney test"
+    
+    method <- glue("Two-sided Wilcoxon-Mann–Whitney test on {format_response(response)}.")
+    
+    list(
+        test_res   = test_res,
+        test_label = test_label,
+        method     = method
+    )
+}
+
 
 # test the functions ---------
-# x <- read_csv("data/simulated_qPCR_data.csv") |>
-#     mutate(Sample = factor(Sample))
-# run_ancova(x, comparison = "trt.vs.ctrl")
+x <- read_csv("data/simulated_qPCR_data.csv") |>
+    mutate(Sample = factor(Sample))
+run_ancova(x, comparison = "trt.vs.ctrl")
 # run_mixed_effect(x, comparison = "trt.vs.ctrl", equal.var = T)
 # run_anova(x, comparison = "pairwise", response = "ddCq")
 # run_kruskal(x, comparison = "pairwise", response = "exp_ddCq", p.adjust = "holm")

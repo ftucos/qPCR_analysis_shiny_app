@@ -474,6 +474,13 @@ ui <- page_fillable(
                         min = 0.3, max = 0.9, value = 0.6, step = 0.05
                     ),
                     
+                    # Point size slider
+                    sliderInput(
+                        "export_point_size",
+                        label = "Point size",
+                        min = 1, max = 5, value = 2, step = 0.5
+                    ),
+                    
                     # Sample colors (dynamic - rendered by server) in accordion
                     accordion(
                         id = "sample_colors_accordion",
@@ -1393,9 +1400,17 @@ server <- function(input, output, session) {
                         # --- ANCOVA ---
                         "ancova" = list(
                             show_unequal_variance_toggle    = FALSE,
-                            show_multiple_comparison_type   = n_samples() > 2,
+                            show_multiple_comparison_type   = TRUE,
                             show_multiple_comparison_adjust = FALSE,
                             show_post_hoc_test              = TRUE
+                        ),
+
+                        # --- ANCOVA 2 Sample ---
+                        "ancova_2_sample" = list(
+                            show_unequal_variance_toggle    = FALSE,
+                            show_multiple_comparison_type   = FALSE,
+                            show_multiple_comparison_adjust = FALSE,
+                            show_post_hoc_test              = FALSE
                         ),
                         
                         # --- Mixed Effect Model ---
@@ -1429,12 +1444,28 @@ server <- function(input, output, session) {
                             show_multiple_comparison_adjust = TRUE,
                             show_post_hoc_test              = FALSE
                         ),
+
+                        # --- t-test ---
+                        "ttest" = list(
+                            show_unequal_variance_toggle    = TRUE,
+                            show_multiple_comparison_type   = FALSE,
+                            show_multiple_comparison_adjust = FALSE,
+                            show_post_hoc_test              = FALSE
+                        ),
                         
                         # --- Pairwise paired t-test ---
                         "pairwise_paired_ttest" = list(
                             show_unequal_variance_toggle    = FALSE,
                             show_multiple_comparison_type   = TRUE,
                             show_multiple_comparison_adjust = TRUE,
+                            show_post_hoc_test              = FALSE
+                        ),
+
+                        # --- Paired t-test ---
+                        "paired_ttest" = list(
+                            show_unequal_variance_toggle    = FALSE,
+                            show_multiple_comparison_type   = FALSE,
+                            show_multiple_comparison_adjust = FALSE,
                             show_post_hoc_test              = FALSE
                         ),
                         
@@ -1445,12 +1476,28 @@ server <- function(input, output, session) {
                             show_multiple_comparison_adjust = TRUE,
                             show_post_hoc_test              = FALSE
                         ),
+
+                        # --- Wilcoxon ---
+                        "wilcoxon" = list(
+                            show_unequal_variance_toggle    = FALSE,
+                            show_multiple_comparison_type   = FALSE,
+                            show_multiple_comparison_adjust = FALSE,
+                            show_post_hoc_test              = FALSE
+                        ),
                         
                         # --- Pairwise Wilcoxon-Mann-Whitney ---
                         "pairwise_mann_whitney" = list(
                             show_unequal_variance_toggle    = FALSE,
                             show_multiple_comparison_type   = TRUE,
                             show_multiple_comparison_adjust = TRUE,
+                            show_post_hoc_test              = FALSE
+                        ),
+
+                        # --- Mann-Whitney ---
+                        "mann_whitney" = list(
+                            show_unequal_variance_toggle    = FALSE,
+                            show_multiple_comparison_type   = FALSE,
+                            show_multiple_comparison_adjust = FALSE,
                             show_post_hoc_test              = FALSE
                         ),
                         
@@ -1532,23 +1579,23 @@ server <- function(input, output, session) {
             if (metric == "dCq") {
                 choices <- list(
                     "Parametric" = c(
-                        "ANCOVA" = "ancova",
-                        "Paired t-test" = "pairwise_paired_ttest"
+                        "ANCOVA" = "ancova_2_sample",
+                        "Paired t-test" = "paired_ttest"
                     )
                 )
                 if (include_nonparam) {
-                    choices[["Non-parametric"]] <- c("Wilcoxon signed-rank (paired)" = "pairwise_wilcoxon")
+                    choices[["Non-parametric"]] <- c("Wilcoxon signed-rank (paired)" = "wilcoxon")
                 }
-                default <- "ancova"
+                default <- "ancova_2_sample"
             } else {
                 # ddCq or exp_ddCq
                 choices <- list(
-                    "Parametric" = c("t-test" = "pairwise_ttest")
+                    "Parametric" = c("t-test" = "ttest")
                 )
                 if (include_nonparam) {
-                    choices[["Non-parametric"]] <- c("Wilcoxon-Mann-Whitney" = "pairwise_mann_whitney")
+                    choices[["Non-parametric"]] <- c("Wilcoxon-Mann-Whitney" = "mann_whitney")
                 }
-                default <- "pairwise_ttest"
+                default <- "ttest"
             }
         }
         
@@ -1663,13 +1710,18 @@ server <- function(input, output, session) {
         tryCatch({
             result <- switch(test,
                              "ancova" = run_ancova(data, response = response, comparison = comparison),
+                             "ancova_2_sample" = run_ancova_2_sample(data, response = response),
                              "mixed_effect" = run_mixed_effect(data, response = response, comparison = comparison, equal.var = equal_var),
                              "anova" = run_anova(data, response = response,comparison = comparison),
                              "kruskal" = run_kruskal(data, response = response, comparison = comparison, p.adjust = p_adjust),
                              "pairwise_ttest" = run_pairwise_ttest(data, response = response, comparison = comparison, equal.var = equal_var, p.adjust = p_adjust),
+                             "ttest" = run_ttest(data, response = response, equal.var = equal_var),
                              "pairwise_paired_ttest" = run_pairwise_paired_ttest(data, response = response, comparison = comparison, p.adjust = p_adjust),
+                             "paired_ttest" = run_paired_ttest(data, response = response),
                              "pairwise_wilcoxon" = run_pairwise_wilcoxon(data, response = response, comparison = comparison, p.adjust = p_adjust),
-                             "pairwise_mann_whitney" = run_pairwise_mann_whitney(data, response = response, comparison = comparison, p.adjust = p_adjust)
+                             "wilcoxon" = run_wilcoxon(data, response = response),
+                             "pairwise_mann_whitney" = run_pairwise_mann_whitney(data, response = response, comparison = comparison, p.adjust = p_adjust),
+                             "mann_whitney" = run_mann_whitney(data, response = response)
             )
             # Add dropped count to result for warning display
             result$n_dropped_points <- n_dropped_points
@@ -2056,6 +2108,7 @@ server <- function(input, output, session) {
             plot_data      = d,
             colors         = sample_colors(),
             lw             = input$export_linewidth %||% 0.5,
+            point_size     = input$export_point_size %||% 2,
             axis_text_size = input$export_axis_text_size %||% 10,
             signif_text_size = input$export_signif_text_size %||% 8,
             bar_width      = input$export_bar_width %||% 0.6,
