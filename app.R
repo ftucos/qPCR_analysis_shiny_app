@@ -1152,11 +1152,27 @@ server <- function(input, output, session) {
         n_bio_reps()
     })
     outputOptions(output, "n_bio_reps", suspendWhenHidden = FALSE)
+
     # Derived Reactive: number of samples --------------------------------------
-    
     n_samples <- reactive({
-        req(dCq_data())
-        dCq_data() |>
+        req(dCq_rep_summary())
+        req(input$select_out_target) 
+        
+        dCq_rep_summary() |>
+            filter(Target == input$select_out_target) |>
+            pull("Sample") |>
+            unique() |>
+            length()
+    })
+
+    # Derived Reactive: to decide the proper parametric statistical test to use
+    n_finite_samples <- reactive({
+        req(dCq_rep_summary())
+        req(input$select_out_target) 
+        
+        dCq_rep_summary() |>
+            filter(Target == input$select_out_target) |>
+            filter(!is.finite(dCq_mean)) |>
             pull("Sample") |>
             unique() |>
             length()
