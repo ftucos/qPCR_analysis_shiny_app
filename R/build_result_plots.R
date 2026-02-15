@@ -151,7 +151,7 @@ build_results_plot <- function(plot_data, accent_color, secondary_color) {
 
 # Export tab plot (static, print-quality) ------------------------------------
 
-build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text_size,
+build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size, signif_text_size,
                               bar_width, plot_width, plot_height,
                               show_signif_bars, stats_result,
                               hide_ns, show_exact_pvalue) {
@@ -218,7 +218,8 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
                 shape = point_type_label
             ),
             method = "compactswarm", preserve.data.axis = TRUE,
-            color = "black"
+            color = "black",
+            size = point_size
         )
     
     # Mean points for dCq
@@ -228,7 +229,7 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
                 data = df_summary_target |> mutate(point_type_label = "Mean"),
                 aes(x = Sample, y = sign * .data[[y_summary_value]], shape = point_type_label),
                 color = "black",
-                size = 4
+                size = point_size + 2
             )
     }
     
