@@ -1170,11 +1170,21 @@ server <- function(input, output, session) {
                 disabledChoices = character(0)
             )
         } else {
-            updateRadioGroupButtons(
-                session,
-                "summarize_bio_reps",
-                disabledChoices = c("aggregate")
-            )
+            # Force selection to 'split' if 'aggregate' was selected
+            if (input$summarize_bio_reps == "aggregate") {
+                updateRadioGroupButtons(
+                    session,
+                    "summarize_bio_reps",
+                    selected = "split",
+                    disabledChoices = c("aggregate")
+                )
+            } else {
+                updateRadioGroupButtons(
+                    session,
+                    "summarize_bio_reps",
+                    disabledChoices = c("aggregate")
+                )
+            }
         }
     })
     # Observe Event: Update default error bar type when toggling biological replicate summary ----------
@@ -1262,15 +1272,35 @@ server <- function(input, output, session) {
             pull("ref_dCq_mean")
         
         if (!all(is.finite(current_target_ref_dCq))) {
+            # Auto-fallback if current selection is incompatible
+            current_metric <- input$out_metric
+            fallback <- switch(current_metric,
+                "ddCq"     = "dCq",
+                "exp_ddCq" = "exp_dCq",
+                NULL
+            )
             updateRadioGroupButtons(
                 session,
                 "out_metric",
+                selected = fallback %||% current_metric,
+                disabledChoices = c("ddCq", "exp_ddCq")
+            )
+            # Update stats_metric (only dCq available)
+            updateRadioGroupButtons(
+                session,
+                "stats_metric",
+                selected = "dCq",
                 disabledChoices = c("ddCq", "exp_ddCq")
             )
         } else {
             updateRadioGroupButtons(
                 session,
                 "out_metric",
+                disabledChoices = character(0)
+            )
+            updateRadioGroupButtons(
+                session,
+                "stats_metric",
                 disabledChoices = character(0)
             )
         }
