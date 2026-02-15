@@ -501,7 +501,7 @@ ui <- page_fillable(
                     
                     hr(),
                     
-                    # Significance bar display options (moved from Results tab)
+                    # Significance bar display options
                     conditionalPanel(
                         condition = "output.n_bio_reps >= 2 && output.n_samples >= 2 && input.summarize_bio_reps != 'split'",
                         tags$h6(tags$strong("Significance Bars")),
