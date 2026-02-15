@@ -235,6 +235,7 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
     p <- p +
         scale_shape_manual(
             values = c("Detected" = 16, "Undetected" = 1, "Mean" = 4),
+            breaks = c("Mean", "Undetected"),
             name = ""
         ) +
         labs(x = NULL, y = y_label, title = plot_title, subtitle = plot_subtitle) +
