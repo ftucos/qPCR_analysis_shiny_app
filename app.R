@@ -50,6 +50,7 @@ source("R/build_result_plots.R")
 # UI Definition ================================================================
 
 ui <- page_fillable(
+
     # Custom CSS
     tags$head(
         tags$link(rel = "stylesheet", type = "text/css", href = "www/custom.css")
@@ -495,7 +496,7 @@ ui <- page_fillable(
                     
                     # Significance bar display options (moved from Results tab)
                     conditionalPanel(
-                        condition = "output.n_bio_reps >= 2 && output.n_samples >= 2",
+                        condition = "output.n_bio_reps >= 2 && output.n_samples >= 2 && input.summarize_bio_reps != 'split'",
                         tags$h6(tags$strong("Significance Bars")),
                         prettySwitch(
                             "show_signif_bars",
@@ -1185,11 +1186,16 @@ server <- function(input, output, session) {
                 "stat_type",
                 selected = "se"
             )
+
         } else {
             updateRadioGroupButtons(
                 session,
                 "stat_type",
                 selected = "none"
+            )
+            # Turn off significance bars in split mode
+            shinyWidgets::updatePrettySwitch(
+                session, "show_signif_bars", value = FALSE
             )
         }
     })
@@ -2023,8 +2029,8 @@ server <- function(input, output, session) {
             axis_text_size = input$export_axis_text_size %||% 10,
             signif_text_size = input$export_signif_text_size %||% 8,
             bar_width      = input$export_bar_width %||% 0.6,
-            plot_width     = (input$export_plot_width %||% 10) / 2.54,
-            plot_height    = (input$export_plot_height %||% 10) / 2.54,
+            plot_width     = input$export_plot_width %||% 4,
+            plot_height    = input$export_plot_height %||% 4,
             show_signif_bars = isTRUE(input$show_signif_bars),
             stats_result   = stats_result(),
             hide_ns        = isTRUE(input$hide_ns_bars),
@@ -2065,22 +2071,43 @@ server <- function(input, output, session) {
     
     export_bio_rep <- reactive({
         req(ddCq_rep_summary())
-        ddCq_rep_summary() |>
+        
+        df <- ddCq_rep_summary() |>
             mutate(Cq_n = as.integer(Cq_n)) |>
-            select(any_of("Replicate"), Sample, Target,
-                   Cq_n, Cq_mean, Cq_sd, Cq_se, HK_mean_Cq,
-                   dCq_mean, dCq_sd, dCq_se,
-                   exp_dCq_mean, exp_dCq_sd_low, exp_dCq_sd_high, exp_dCq_se_low, exp_dCq_se_high,
-                   ref_mean_dCq = ref_dCq_mean,
-                   ddCq_mean, ddCq_sd, ddCq_se,
-                   exp_ddCq_mean, exp_ddCq_sd_low, exp_ddCq_sd_high, exp_ddCq_se_low, exp_ddCq_se_high) |>
+            rename(ref_mean_dCq = ref_dCq_mean)
+        
+        # Base columns always shown
+        base_cols <- c("Replicate", "Sample", "Target",
+                       "Cq_n", "Cq_mean", "HK_mean_Cq",
+                       "dCq_mean", "exp_dCq_mean",
+                       "ref_mean_dCq",
+                       "ddCq_mean", "exp_ddCq_mean")
+        
+        # Only include dispersion when single replicate (or no Replicate column)
+        # and user has error bars enabled
+        if (n_bio_reps() <= 1 && input$stat_type != "none") {
+            stat <- input$stat_type  # "sd" or "se"
+            disp_cols <- c(
+                paste0("Cq_", stat),
+                paste0("dCq_", stat),
+                paste0("exp_dCq_", stat, c("_low", "_high")),
+                paste0("ddCq_", stat),
+                paste0("exp_ddCq_", stat, c("_low", "_high"))
+            )
+            base_cols <- c(base_cols, disp_cols)
+        }
+        
+        df |>
+            select(any_of(base_cols)) |>
             sanitize_inf()
     })
     
     export_summary <- reactive({
         req(n_bio_reps() > 1)
-        ddCq_summary() |>
-            mutate(ddCq_n = as.integer(ddCq_n)) |>
+        dCq_summary() |>
+            select(-Undetected) |>
+            left_join(ddCq_summary(), by = c("Sample", "Target")) |>
+            mutate(across(where(is.integer), as.integer)) |>
             select(-matches("^(dCq|ddCq)_(sd|se)_(low|high)$")) |>
             sanitize_inf()
     })
@@ -2132,20 +2159,24 @@ server <- function(input, output, session) {
     
     # Download Handlers ========================================================
     
+    # Helper: compute total figure size from the built ggplot grob
+    export_plot_dims <- reactive({
+        get_plot_dims(export_plot_obj())
+    })
+    
     # Download: Plot as PNG
     output$download_plot_png <- downloadHandler(
         filename = function() {
             paste0("qPCR_plot_", input$select_out_target, "_", Sys.Date(), ".png")
         },
         content = function(file) {
-            plot_width <- (input$export_plot_width %||% 10) / 2.54  # convert cm to inches
-            plot_height <- (input$export_plot_height %||% 10) / 2.54  # convert cm to inches
-            
+            dims <- export_plot_dims()
             ggsave(
                 file,
                 plot = export_plot_obj(),
-                width = plot_width + 1,  # Add margin for axis labels
-                height = plot_height + 1,
+                width = dims$width,
+                height = dims$height,
+                units = "cm",
                 dpi = 300,
                 bg = "white"
             )
@@ -2158,14 +2189,13 @@ server <- function(input, output, session) {
             paste0("qPCR_plot_", input$select_out_target, "_", Sys.Date(), ".pdf")
         },
         content = function(file) {
-            plot_width <- (input$export_plot_width %||% 10) / 2.54  # convert cm to inches
-            plot_height <- (input$export_plot_height %||% 10) / 2.54  # convert cm to inches
-            
+            dims <- export_plot_dims()
             ggsave(
                 file,
                 plot = export_plot_obj(),
-                width = plot_width + 1,
-                height = plot_height + 1,
+                width = dims$width,
+                height = dims$height,
+                units = "cm",
                 device = cairo_pdf
             )
         }

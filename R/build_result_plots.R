@@ -271,16 +271,21 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
             )
     }
     
-    # Significance bars
-    if (isTRUE(show_signif_bars) && !is.null(stats_result) && is.null(stats_result$error)) {
+    # Significance bars (skip when faceted by bio rep)
+    if (isTRUE(show_signif_bars) && !is.null(stats_result) && is.null(stats_result$error) && summarize_bio_reps != "split") {
         # Step size: convert text height (pt) to data units
         y_range <- diff(y_limits)
-        step <- signif_text_size / (plot_height * 72) * y_range * 1.8
+        step <- signif_text_size / (plot_height * 72 / 2.54) * y_range * 1.8
+        
+        # Compute y_max excluding undetected (Inf) values
+        y_vals <- sign * df_target[[y_value]]
+        y_vals_finite <- y_vals[is.finite(y_vals)]
+        y_max_signif <- if (length(y_vals_finite) > 0) max(y_vals_finite) else y_limits[2]
         
         signif_data <- prepare_signif_data(
             stats_result,
             samples = df_target$Sample,
-            y_max = max(sign * df_target[[y_value]], na.rm = TRUE),
+            y_max = y_max_signif,
             hide_ns = isTRUE(hide_ns),
             show_p_value = isTRUE(show_exact_pvalue),
             step = step
@@ -308,7 +313,7 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
             signif_top <- max(signif_data$y.position) + step
             overflow <- signif_top - y_limits[2]
             if (overflow > 0) {
-                margin_pt <- overflow / y_range * plot_height * 72
+                margin_pt <- overflow / y_range * plot_height * 72 / 2.54
                 if (!is.null(plot_subtitle)) {
                     p <- p + theme(plot.subtitle = element_text(
                         margin = margin(b = margin_pt, unit = "pt")
@@ -330,9 +335,35 @@ build_export_plot <- function(plot_data, colors, lw, axis_text_size, signif_text
     # Force panel size
     p <- p +
         ggh4x::force_panelsizes(
-            rows = unit(plot_height, "in"),
-            cols = unit(plot_width, "in")
+            rows = unit(plot_height, "cm"),
+            cols = unit(plot_width, "cm")
         )
     
     return(p)
+}
+
+# Compute actual plot dimensions from the built ggplot object ----------------
+# Uses ggplotGrob to get precise dimensions including all decorations.
+# Returns width and height in cm.
+
+get_plot_dims <- function(p) {
+    g <- ggplotGrob(p)
+    
+    w <- grid::convertWidth(sum(g$widths),  unitTo = "cm", valueOnly = TRUE)
+    h <- grid::convertHeight(sum(g$heights), unitTo = "cm", valueOnly = TRUE)
+    
+    # Enforce minimum width so title/subtitle text is not cropped
+    labels <- c(p$labels$title, p$labels$subtitle)
+    if (length(labels) > 0) {
+        base_size <- p$theme$text$size %||% 11
+        longest <- labels[which.max(nchar(labels))]
+        # Estimate text width: stringWidth uses current device font
+        text_w <- grid::convertWidth(
+            grid::stringWidth(longest),
+            unitTo = "cm", valueOnly = TRUE
+        ) * base_size / 12 + 0.5  # scale by font size + small margin
+        w <- max(w, text_w)
+    }
+    
+    list(width = w, height = h)
 }
