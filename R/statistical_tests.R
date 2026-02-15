@@ -168,7 +168,7 @@ run_ancova_2_sample <- function(x, response = c("dCq")) {
 
     list(
         test_res        = test_res,
-        test_label      = test_method,
+        test_label      = test_label,
         method          = method
     )
 }
@@ -859,15 +859,22 @@ run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
 
 
 # test the functions ---------
-x <- read_csv("data/simulated_qPCR_data.csv") |>
-    mutate(Sample = factor(Sample))
-run_ancova(x, comparison = "trt.vs.ctrl")
+# x <- read_csv("data/simulated_qPCR_data.csv") |>
+#     mutate(Sample = factor(Sample))
+# run_ancova(x, comparison = "pairwise")
 # run_mixed_effect(x, comparison = "trt.vs.ctrl", equal.var = T)
 # run_anova(x, comparison = "pairwise", response = "ddCq")
 # run_kruskal(x, comparison = "pairwise", response = "exp_ddCq", p.adjust = "holm")
+# run_pairwise_paired_ttest(x, comparison = "trt.vs.ctrl", response = "dCq", p.adjust = "BH")
 # run_pairwise_ttest(x, comparison = "trt.vs.ctrl", response = "ddCq", p.adjust = "BH")
 # run_pairwise_wilcoxon(x, comparison = "trt.vs.ctrl", response = "dCq", p.adjust = "BH")
 # run_pairwise_mann_whitney(x, comparison = "trt.vs.ctrl", response = "ddCq", p.adjust = "BH")
+# x_2 <- x |> filter(Sample %in% c("Ctrl", "TrtA"))
+# run_ancova_2_sample(x, response = "dCq")
+# run_paired_ttest(x, response = "dCq")
+# run_ttest(x, response = "ddCq")
+# run_wilcoxon(x, response = "dCq")
+# run_mann_whitney(x, response = "ddCq")
 
 # TODO:
 # protect post-hoc test
