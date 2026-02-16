@@ -8,8 +8,8 @@ library(nlme)
 library(PMCMRplus)
 library(rstatix)
 
-# change defaults of add_significance to mark up to 3 stars
-add_significance <- partial(add_significance,
+# change defaults of add_signif to mark up to 3 stars
+add_signif <- partial(add_significance,
   cutpoints = c(0, 0.001, 0.01, 0.05, 1),
   symbols = c("***", "**", "*", "ns")
 )
@@ -39,7 +39,7 @@ format_emmeans <- function(df) {
 format_pmcmr <- function(pmcmr_result) {
     PMCMRplus::toTidy(pmcmr_result) |>
         rename(group1 = group1, group2 = group2) |>
-        add_significance(p.col = "p.value", output.col = "Significance")
+        add_signif(p.col = "p.value", output.col = "Significance")
 }
 
 # Helper: format pairwise.*.test output to tidy format
@@ -54,7 +54,7 @@ format_pairwise_test <- function(pairwise_result) {
         `p-value` = as.vector(t(p_mat))
     ) |>
         filter(!is.na(`p-value`)) |>
-        add_significance(p.col = "p-value", output.col = "Significance")
+        add_signif(p.col = "p-value", output.col = "Significance")
     }
 
 # ANCOVA -----------------------------------------------------------------------
@@ -106,7 +106,7 @@ run_ancova <- function(x,
                 `q-value`      = statistic,
                 `Adj. p-value` = adj.p.value
             ) |>
-            add_significance(p.col = "Adj. p-value", output.col = "Significance") |>
+            add_signif(p.col = "Adj. p-value", output.col = "Significance") |>
             select(-null.value, -estimate, -std.error)
         post_hoc_method <- "Tukey HSD"
 
@@ -122,7 +122,7 @@ run_ancova <- function(x,
                 `t-value`      = statistic,
                 `Adj. p-value` = adj.p.value
             ) |>
-            add_significance(p.col = "Adj. p-value", output.col = "Significance") |>
+            add_signif(p.col = "Adj. p-value", output.col = "Significance") |>
             select(-null.value, -estimate, -std.error)
 
         post_hoc_method <- "Dunnett"
@@ -158,7 +158,7 @@ run_ancova_2_sample <- function(x, response = c("dCq")) {
             `p-value`  = p.value
         ) |>
         mutate(Term = str_replace(Term, "ref_dCq", "Covariate (Reference dCq)")) |>
-        add_significance(p.col = "p-value", output.col = "Significance")
+        add_signif(p.col = "p-value", output.col = "Significance")
         
     test_label <- "ANCOVA"
 
@@ -280,7 +280,7 @@ run_mixed_effect <- function(x,
             `Adj. p-value` = adj.p.value
         ) |>
         select(-null.value, -estimate, -std.error) |>
-        add_significance(p.col = "Adj. p-value", output.col = "Significance")
+        add_signif(p.col = "Adj. p-value", output.col = "Significance")
         
         # rename the statistic column based on the type of post-hoc test
         if(post_hoc_method %in% c("Tukey HSD")) {
@@ -353,7 +353,7 @@ run_anova <- function(x,
                 `q-value`      = statistic,
                 `Adj. p-value` = adj.p.value
             ) |>
-            add_significance(p.col = "Adj. p-value", output.col = "Significance") |>
+            add_signif(p.col = "Adj. p-value", output.col = "Significance") |>
             select(-null.value, -estimate, -std.error)
         
         post_hoc_method <- "Tukey HSD"
@@ -370,7 +370,7 @@ run_anova <- function(x,
                 `t-value`      = statistic,
                 `Adj. p-value` = adj.p.value
             ) |>
-            add_significance(p.col = "Adj. p-value", output.col = "Significance") |>
+            add_signif(p.col = "Adj. p-value", output.col = "Significance") |>
             select(-null.value, -estimate, -std.error)
         
         post_hoc_method <- "Dunnett"
@@ -394,13 +394,13 @@ run_anova <- function(x,
 run_kruskal <- function(x,
                         comparison = c("pairwise", "trt.vs.ctrl"),
                         response   = c("ddCq", "exp_ddCq"),
-                        p.adjust   = c("BH", "holm", "none")) {
+                        p_adjust_method   = c("BH", "holm", "none")) {
 
     comparison <- match.arg(comparison)
     response   <- match.arg(response)
     
     if (comparison == "pairwise") { # not requiret for many vs one dunn test (single-stpe adjustment)
-        p.adjust   <- match.arg(p.adjust)
+        p_adjust_method   <- match.arg(p_adjust_method)
     }
 
     test_formula <- reformulate("Sample", response = response)
@@ -428,12 +428,12 @@ run_kruskal <- function(x,
     # Post-hoc: Dunn's test
     if (comparison == "pairwise") {
         post_hoc <- PMCMRplus::kwAllPairsDunnTest(
-            test_formula, data = x, p.adjust.method = p.adjust
+            test_formula, data = x, p.adjust.method = p_adjust_method
         )
         
         post_hoc_method <- ifelse(
-            p.adjust != "none",
-            glue("Dunn's ({str_replace(p.adjust, 'holm', 'Holm')} adjusted)"),
+            p_adjust_method != "none",
+            glue("Dunn's ({str_replace(p_adjust_method, 'holm', 'Holm')} adjusted)"),
             glue("Dunn's (unadjusted)")
         )
         
@@ -445,7 +445,7 @@ run_kruskal <- function(x,
     }
 
     post_hoc_res <- format_pmcmr(post_hoc) |>
-        add_significance(p.col = "p.value", output.col = "Significance") |>
+        add_signif(p.col = "p.value", output.col = "Significance") |>
         mutate(Term  = "Sample") |>
         rename(
             `z-value` = statistic,
@@ -453,7 +453,7 @@ run_kruskal <- function(x,
         select(Term, group1, group2, `z-value`, p.value, Significance)
     
     
-    if (p.adjust != "none") {
+    if (p_adjust_method != "none") {
         post_hoc_res <- post_hoc_res |>
             rename(`Adj. p-value` = p.value)
     } else {
@@ -483,11 +483,11 @@ run_pairwise_ttest <- function(x,
                                response   = c("ddCq", "exp_ddCq"),
                                comparison = c("pairwise", "trt.vs.ctrl"),
                                equal.var  = TRUE,
-                               p.adjust   = c("BH", "holm", "none")) {
+                               p_adjust_method   = c("BH", "holm", "none")) {
 
     response <- match.arg(response)
     comparison <- match.arg(comparison)
-    p.adjust <- match.arg(p.adjust)
+    p_adjust_method <- match.arg(p_adjust_method)
     stopifnot(is.logical(equal.var), length(equal.var) == 1L, !is.na(equal.var))
     
     test_formula <- reformulate("Sample", response = response)
@@ -504,22 +504,22 @@ run_pairwise_ttest <- function(x,
         var.equal = equal.var,
         ref.group = reference_sample,
         pool.sd = FALSE, # when pooling SD it becomes a Fisher's LSD test
-        p.adjust.method = p.adjust
+        p.adjust.method = p_adjust_method
     )
     
     test_res <- test |>
         select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
                `p-value` = p, `Adj. p-value` = p.adj) |>
-        add_significance(p.col = "Adj. p-value", output.col = "Significance")
+        add_signif(p.col = "Adj. p-value", output.col = "Significance")
         
-    if (p.adjust == "none") {
+    if (p_adjust_method == "none") {
         # drop the adj column in case of no adjustment
         test_res <- select(test_res, -`Adj. p-value`) 
     } 
     
     adjust_label <- ifelse(
-        p.adjust != "none",
-        glue("({str_replace(p.adjust, 'holm', 'Holm')} adjusted)"),
+        p_adjust_method != "none",
+        glue("({str_replace(p_adjust_method, 'holm', 'Holm')} adjusted)"),
         "(unadjusted)"
     )
     
@@ -564,7 +564,7 @@ run_ttest <- function(x,
     test_res <- test |>
         select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
                `p-value` = p) |>
-        add_significance(p.col = "p-value", output.col = "Significance")
+        add_signif(p.col = "p-value", output.col = "Significance")
         
     test_label <- ifelse(
         equal.var,
@@ -587,11 +587,11 @@ run_ttest <- function(x,
 run_pairwise_paired_ttest <- function(x,
                                       response = c("dCq"),
                                       comparison = c("pairwise", "trt.vs.ctrl"),
-                                      p.adjust = c("BH", "holm", "none")) {
+                                      p_adjust_method = c("BH", "holm", "none")) {
 
     response   <- match.arg(response)
     comparison <- match.arg(comparison)
-    p.adjust   <- match.arg(p.adjust)
+    p_adjust_method   <- match.arg(p_adjust_method)
 
     test_formula <- reformulate("Sample", response = response)
     
@@ -606,22 +606,22 @@ run_pairwise_paired_ttest <- function(x,
         formula   = test_formula,
         ref.group = reference_sample,
         paired    = T,
-        p.adjust.method = p.adjust
+        p.adjust.method = p_adjust_method
     )
     
     test_res <- test |>
         select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
                `p-value` = p, `Adj. p-value` = p.adj) |>
-        add_significance(p.col = "Adj. p-value", output.col = "Significance")
+        add_signif(p.col = "Adj. p-value", output.col = "Significance")
         
-    if (p.adjust == "none") {
+    if (p_adjust_method == "none") {
         # drop the adj column in case of no adjustment
         test_res <- select(test_res, -`Adj. p-value`) 
     } 
     
     adjust_label <- ifelse(
-        p.adjust != "none",
-        glue("({str_replace(p.adjust, 'holm', 'Holm')} adjusted)"),
+        p_adjust_method != "none",
+        glue("({str_replace(p_adjust_method, 'holm', 'Holm')} adjusted)"),
         "(unadjusted)"
     )
     
@@ -661,7 +661,7 @@ run_paired_ttest <- function(x,
     test_res <- test |>
         select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
                `p-value` = p) |>
-        add_significance(p.col = "p-value", output.col = "Significance")
+        add_signif(p.col = "p-value", output.col = "Significance")
         
     test_label <- "paired t-test"
     
@@ -680,11 +680,11 @@ run_paired_ttest <- function(x,
 run_pairwise_wilcoxon <- function(x,
                                       response = c("dCq"),
                                       comparison = c("pairwise", "trt.vs.ctrl"),
-                                      p.adjust = c("BH", "holm", "none")) {
+                                      p_adjust_method = c("BH", "holm", "none")) {
     
     response   <- match.arg(response)
     comparison <- match.arg(comparison)
-    p.adjust   <- match.arg(p.adjust)
+    p_adjust_method   <- match.arg(p_adjust_method)
     
     test_formula <- reformulate("Sample", response = response)
     
@@ -699,22 +699,22 @@ run_pairwise_wilcoxon <- function(x,
         formula   = test_formula,
         ref.group = reference_sample,
         paired    = T,
-        p.adjust.method = p.adjust
+        p.adjust.method = p_adjust_method
     )
     
     test_res <- test |>
         select(Term = ".y.", group1, group2, `V-value` = statistic,
                `p-value` = p, `Adj. p-value` = p.adj) |>
-        add_significance(p.col = "Adj. p-value", output.col = "Significance")
+        add_signif(p.col = "Adj. p-value", output.col = "Significance")
         
-    if (p.adjust == "none") {
+    if (p_adjust_method == "none") {
         # drop the adj column in case of no adjustment
         test_res <- select(test_res, -`Adj. p-value`) 
     } 
     
     adjust_label <- ifelse(
-        p.adjust != "none",
-        glue("({str_replace(p.adjust, 'holm', 'Holm')} adjusted)"),
+        p_adjust_method != "none",
+        glue("({str_replace(p_adjust_method, 'holm', 'Holm')} adjusted)"),
         "(unadjusted)"
     )
     
@@ -751,7 +751,7 @@ run_wilcoxon <- function(x, response = c("dCq")) {
     test_res <- test |>
         select(Term = ".y.", group1, group2, `V-value` = statistic,
                `p-value` = p) |>
-        add_significance(p.col = "p-value", output.col = "Significance")
+        add_signif(p.col = "p-value", output.col = "Significance")
         
     test_label <- "Wilcoxon signed-rank test"
     
@@ -770,11 +770,11 @@ run_wilcoxon <- function(x, response = c("dCq")) {
 run_pairwise_mann_whitney <- function(x,
                                       response = c("ddCq", "exp_ddCq"),
                                       comparison = c("pairwise", "trt.vs.ctrl"),
-                                      p.adjust = c("BH", "holm", "none")) {
+                                      p_adjust_method = c("BH", "holm", "none")) {
 
     response   <- match.arg(response)
     comparison <- match.arg(comparison)
-    p.adjust   <- match.arg(p.adjust)
+    p_adjust_method   <- match.arg(p_adjust_method)
 
     test_formula <- reformulate("Sample", response = response)
     
@@ -813,20 +813,20 @@ run_pairwise_mann_whitney <- function(x,
     }) |>
         bind_rows()
     
-    if (p.adjust == "none") {
+    if (p_adjust_method == "none") {
         # drop the adj column in case of no adjustment
         test_res <- test_res |>
-            add_significance(p.col = "p-value", output.col = "Significance")
+            add_signif(p.col = "p-value", output.col = "Significance")
     } else {
         test_res <- test_res |>
-            mutate("Adj. p-value" = p.adjust(`p-value`, method = p.adjust)) |>
-            add_significance(p.col = "Adj. p-value", output.col = "Significance")
+            mutate("Adj. p-value" = p.adjust(`p-value`, method = p_adjust_method)) |>
+            add_signif(p.col = "Adj. p-value", output.col = "Significance")
     
     }
     
     adjust_label <- ifelse(
-        p.adjust != "none",
-        glue("({str_replace(p.adjust, 'holm', 'Holm')} adjusted)"),
+        p_adjust_method != "none",
+        glue("({str_replace(p_adjust_method, 'holm', 'Holm')} adjusted)"),
         "(unadjusted)"
     )
     
@@ -864,7 +864,7 @@ run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
                group1 = x$Sample[[1]],
                group2 = x$Sample[[2]],
                ) |>
-        add_significance(p.col = "p.value", output.col = "Significance") |>
+        add_signif(p.col = "p.value", output.col = "Significance") |>
         select(Term, group1, group2, `U-value` = statistic, `p-value` = p.value, Significance)
         
 
@@ -883,22 +883,22 @@ run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
 
 
 # test the functions ---------
-# x <- read_csv("data/simulated_qPCR_data.csv") |>
-#     mutate(Sample = factor(Sample))
-# run_ancova(x, comparison = "pairwise")
-# run_mixed_effect(x, comparison = "trt.vs.ctrl", equal.var = T)
-# run_anova(x, comparison = "pairwise", response = "ddCq")
-# run_kruskal(x, comparison = "pairwise", response = "exp_ddCq", p.adjust = "holm")
-# run_pairwise_paired_ttest(x, comparison = "trt.vs.ctrl", response = "dCq", p.adjust = "BH")
-# run_pairwise_ttest(x, comparison = "trt.vs.ctrl", response = "ddCq", p.adjust = "BH")
-# run_pairwise_wilcoxon(x, comparison = "trt.vs.ctrl", response = "dCq", p.adjust = "BH")
-run_pairwise_mann_whitney(x, comparison = "trt.vs.ctrl", response = "ddCq", p.adjust = "BH")
-# x_2 <- x |> filter(Sample %in% c("Ctrl", "TrtA"))
-# run_ancova_2_sample(x_2, response = "dCq")
-# run_paired_ttest(x_2, response = "dCq")
-# run_ttest(x_2, response = "ddCq")
-# run_wilcoxon(x_2, response = "dCq")
-# run_mann_whitney(x_2, response = "ddCq")
+x <- read_csv("data/simulated_qPCR_data.csv") |>
+    mutate(Sample = factor(Sample))
+run_ancova(x, comparison = "pairwise")
+run_mixed_effect(x, comparison = "trt.vs.ctrl", equal.var = T)
+run_anova(x, comparison = "pairwise", response = "ddCq")
+run_kruskal(x, comparison = "pairwise", response = "exp_ddCq", p_adjust_method = "holm")
+run_pairwise_paired_ttest(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_method = "BH")
+run_pairwise_ttest(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
+run_pairwise_wilcoxon(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_method = "BH")
+run_pairwise_mann_whitney(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
+x_2 <- x |> filter(Sample %in% c("Ctrl", "TrtA"))
+run_ancova_2_sample(x_2, response = "dCq")
+run_paired_ttest(x_2, response = "dCq")
+run_ttest(x_2, response = "ddCq")
+run_wilcoxon(x_2, response = "dCq")
+run_mann_whitney(x_2, response = "ddCq")
 
 # TODO:
 # protect post-hoc test
