@@ -700,6 +700,7 @@ server <- function(input, output, session) {
             hot_col("Cq", type = "text") |> # type = "text" to allow for Undetermined or other labels
             hot_context_menu(allowRowEdit = TRUE, allowColEdit = FALSE)
     })
+    outputOptions(output, "raw_data", suspendWhenHidden = FALSE)
     
     # Observer: on raw data edit: ----------------------------------------------
     # 1. cache last `raw_data` and validate Cq values
@@ -731,7 +732,10 @@ server <- function(input, output, session) {
         current_data$Cq <- parsed_cq
         
         # Cache updated raw data
-        cache$raw_data <- current_data
+        # Only update if the validation actually changed something to prevent re-rendering on every keystroke
+        if (any(changed_mask)) {
+            cache$raw_data <- current_data
+        }
         
         # Show warning modal if any conversions happened
         if (length(conversions) > 0) {
