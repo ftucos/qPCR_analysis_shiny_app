@@ -442,8 +442,12 @@ ui <- page_fillable(
                             class = "bg-light py-2 px-3",
                             tags$strong("Methods: "),
                             textOutput("stats_method", inline = TRUE)
-                        )
+                        ),
+                    card_footer(
+                        class = "d-flex justify-content-end",
+                        downloadButton("download_stats_xlsx", "Export Stats (XLSX)", class = "btn-sm btn-outline-success")
                     )
+                )
                 )
             )
         ),
@@ -453,13 +457,11 @@ ui <- page_fillable(
             page_sidebar(
                 fillable = TRUE,
                 sidebar = sidebar(
-                    title = "Export Settings",
+                    title = "Plot Export Settings",
                     open = TRUE,
                     width = "380px",
                     
-                    # Plot Styling Section
                     tags$h6(tags$strong("Plot Styling")),
-                    
                     # Linewidth slider (0 to 1 pt)
                     sliderInput(
                         "export_linewidth",
@@ -498,9 +500,25 @@ ui <- page_fillable(
                         label = "Axis text size (pt)",
                         min = 5, max = 14, value = 10, step = 1
                     ),
-                    
                     hr(),
-                    
+                    # Plot dimensions
+                    tags$h6(tags$strong("Plot Dimensions")),
+                    div(
+                        class = "d-flex gap-2",
+                        numericInput(
+                            "export_plot_width",
+                            label = "Width (cm)",
+                            value = 4, min = 1, max = 30, step = 0.1,
+                            width = "100px"
+                        ),
+                        numericInput(
+                            "export_plot_height",
+                            label = "Height (cm)",
+                            value = 4, min = 2, max = 30, step = 0.1,
+                            width = "100px"
+                        )
+                    ),
+                    hr(),
                     # Significance bar display options
                     conditionalPanel(
                         condition = "output.n_bio_reps >= 2 && output.n_samples >= 2 && input.summarize_bio_reps != 'split'",
@@ -530,38 +548,11 @@ ui <- page_fillable(
                                 label = "Significance text size (pt)",
                                 min = 5, max = 14, value = 8, step = 1
                             )
-                        ),
-                        hr()
-                    ),
-                    
-                    # Plot dimensions
-                    tags$h6(tags$strong("Plot Dimensions")),
-                    div(
-                        class = "d-flex gap-2",
-                        numericInput(
-                            "export_plot_width",
-                            label = "Width (cm)",
-                            value = 4, min = 1, max = 30, step = 0.1,
-                            width = "100px"
-                        ),
-                        numericInput(
-                            "export_plot_height",
-                            label = "Height (cm)",
-                            value = 4, min = 2, max = 30, step = 0.1,
-                            width = "100px"
                         )
                     ),
+
                     
-                    hr(),
-                    
-                    # Download buttons
-                    tags$h6(tags$strong("Download")),
-                    div(
-                        class = "d-flex gap-2 flex-wrap",
-                        downloadButton("download_plot_png", "Plot (PNG)", class = "btn-sm btn-outline-primary"),
-                        downloadButton("download_plot_pdf", "Plot (PDF)", class = "btn-sm btn-outline-primary"),
-                        downloadButton("download_data_xlsx", "Data (XLSX)", class = "btn-sm btn-outline-success")
-                    )
+                    # Download buttons moved to respective cards
                 ),
                 
                 # Main content area
@@ -572,8 +563,13 @@ ui <- page_fillable(
                     # Static plot preview
                     card(
                         full_screen = TRUE,
-                        card_header("Plot Preview"),
-                        plotOutput("export_plot", height = "100%")
+                        card_header(uiOutput("plot_preview_title")),
+                        plotOutput("export_plot", height = "100%"),
+                        card_footer(
+                            class = "d-flex justify-content-end gap-2",
+                            downloadButton("download_plot_png", "Plot (PNG)", class = "btn-sm btn-outline-primary"),
+                            downloadButton("download_plot_pdf", "Plot (PDF)", class = "btn-sm btn-outline-primary")
+                        )
                     ),
                     
                     # Data preview tabs
@@ -598,7 +594,15 @@ ui <- page_fillable(
                                 condition = "output.n_bio_reps >= 2",
                                 DT::dataTableOutput("preview_summary")
                             )
-                        )
+                        ),
+                        
+                        nav_spacer(),
+                        
+                        nav_item(
+                            tags$div( # required to escame the formatting inherited by the nav_item
+                                downloadButton("download_data_xlsx", "Data (XLSX)", class = "btn-sm btn-outline-success border-0")
+                            )
+                        ),
                     )
                 )
             )
@@ -2410,44 +2414,78 @@ server <- function(input, output, session) {
                 }
             }, error = function(e) NULL)
             
-            # Sheet 5: Statistics (if available)
+
+            
+            saveWorkbook(wb, file, overwrite = TRUE)
+        }
+    )
+    
+    # Download: Statistics as XLSX (Current Target)
+    output$download_stats_xlsx <- downloadHandler(
+        filename = function() {
+            paste0("qPCR_stats_", input$select_out_target, "_", Sys.Date(), ".xlsx")
+        },
+        content = function(file) {
+            wb <- createWorkbook()
+            # Excel sheet name limit is 31 characters
+            sheet_name <- substr(input$select_out_target, 1, 31)
+            
+            addWorksheet(wb, sheet_name)
+            
             tryCatch({
                 if (!is.null(stats_result()) && is.null(stats_result()$error)) {
-                    addWorksheet(wb, "Statistics")
                     row <- 1
                     
-                    # Omnibus results first (if present)
+                    # Omnibus results
                     if (!is.null(stats_result()$omnibus_res)) {
                         omnibus_header <- paste("Omnibus:", stats_result()$omnibus_label %||% "")
-                        writeData(wb, "Statistics", data.frame(x = omnibus_header), startRow = row, colNames = FALSE)
+                        writeData(wb, sheet_name, data.frame(x = omnibus_header), startRow = row, colNames = FALSE)
                         row <- row + 1
-                        writeData(wb, "Statistics", stats_result()$omnibus_res, startRow = row)
-                        row <- row + nrow(stats_result()$omnibus_res) + 2  # gap row
+                        writeData(wb, sheet_name, stats_result()$omnibus_res, startRow = row)
+                        row <- row + nrow(stats_result()$omnibus_res) + 2
                     }
                     
-                    # Comparison results
+                    # Test results
                     if (!is.null(stats_result()$test_res)) {
                         comp_header <- if (!is.null(stats_result()$omnibus_res)) {
                             paste("Post-hoc:", stats_result()$test_label %||% "")
                         } else {
                             stats_result()$test_label %||% "Pairwise Comparisons"
                         }
-                        writeData(wb, "Statistics", data.frame(x = comp_header), startRow = row, colNames = FALSE)
+                        writeData(wb, sheet_name, data.frame(x = comp_header), startRow = row, colNames = FALSE)
                         row <- row + 1
-                        writeData(wb, "Statistics", stats_result()$test_res, startRow = row)
-                        row <- row + nrow(stats_result()$test_res) + 2  # gap row
+                        writeData(wb, sheet_name, stats_result()$test_res, startRow = row)
+                        row <- row + nrow(stats_result()$test_res) + 2
                     }
                     
-                    # Method description
+                    # Method
                     if (!is.null(stats_result()$method)) {
-                        writeData(wb, "Statistics", data.frame(x = stats_result()$method), startRow = row, colNames = FALSE)
+                         writeData(wb, sheet_name, data.frame(x = stats_result()$method), startRow = row, colNames = FALSE)
                     }
+                } else {
+                     writeData(wb, sheet_name, "No valid statistical results available.")
                 }
-            }, error = function(e) NULL)
+            }, error = function(e) {
+                # Fallback to "Error" if sheet name is invalid, though tryCatch handles logic errors
+                tryCatch({
+                    writeData(wb, sheet_name, paste("Error exporting statistics:", e$message))
+                }, error = function(e2) {
+                     # specific case where sheet name might be the issue? unlikely if addWorksheet passed
+                })
+            })
             
             saveWorkbook(wb, file, overwrite = TRUE)
         }
     )
+
+    # Plot Preview Title (Dynamic)
+    output$plot_preview_title <- renderUI({
+        req(input$select_out_target)
+        tagList(
+            "Plot Preview for gene ", 
+            tags$strong(input$select_out_target)
+        )
+    })
 }
 
 # Run App ======================================================================
