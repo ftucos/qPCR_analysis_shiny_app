@@ -6,6 +6,13 @@ library(lmerTest)
 library(emmeans)
 library(nlme)
 library(PMCMRplus)
+library(rstatix)
+
+# change defaults of add_significance to mark up to 3 stars
+add_significance <- partial(add_significance,
+  cutpoints = c(0, 0.001, 0.01, 0.05, 1),
+  symbols = c("***", "**", "*", "ns")
+)
 
 format_response <- function(response) {
     case_match(response,
@@ -13,16 +20,6 @@ format_response <- function(response) {
         "ddCq"     ~ "ΔΔCq",
         "exp_ddCq" ~  "2^-ΔΔCq",
         .default = response
-    )
-}
-
-# Helper: convert p-values to significance symbols
-to_significance <- function(p) {
-    case_when(
-        p <= 0.001 ~ "***",
-        p <= 0.01  ~ "**",
-        p <= 0.05  ~ "*",
-        TRUE       ~ "ns"
     )
 }
 
@@ -42,7 +39,7 @@ format_emmeans <- function(df) {
 format_pmcmr <- function(pmcmr_result) {
     PMCMRplus::toTidy(pmcmr_result) |>
         rename(group1 = group1, group2 = group2) |>
-        mutate(Significance = to_significance(p.value))
+        add_significance(p.col = "p.value", output.col = "Significance")
 }
 
 # Helper: format pairwise.*.test output to tidy format
@@ -57,8 +54,8 @@ format_pairwise_test <- function(pairwise_result) {
         `p-value` = as.vector(t(p_mat))
     ) |>
         filter(!is.na(`p-value`)) |>
-        mutate(Significance = to_significance(`p-value`))
-}
+        add_significance(p.col = "p-value", output.col = "Significance")
+    }
 
 # ANCOVA -----------------------------------------------------------------------
 # For dCq with biological replicates, adjusting for reference sample variance
@@ -109,7 +106,7 @@ run_ancova <- function(x,
                 `q-value`      = statistic,
                 `Adj. p-value` = adj.p.value
             ) |>
-            mutate(Significance = to_significance(`Adj. p-value`)) |>
+            add_significance(p.col = "Adj. p-value", output.col = "Significance") |>
             select(-null.value, -estimate, -std.error)
         post_hoc_method <- "Tukey HSD"
 
@@ -125,7 +122,7 @@ run_ancova <- function(x,
                 `t-value`      = statistic,
                 `Adj. p-value` = adj.p.value
             ) |>
-            mutate(Significance = to_significance(`Adj. p-value`)) |>
+            add_significance(p.col = "Adj. p-value", output.col = "Significance") |>
             select(-null.value, -estimate, -std.error)
 
         post_hoc_method <- "Dunnett"
@@ -160,8 +157,9 @@ run_ancova_2_sample <- function(x, response = c("dCq")) {
             `F-value`  = statistic,
             `p-value`  = p.value
         ) |>
-        mutate(Term = str_replace(Term, "ref_dCq", "Covariate (Reference dCq)"))
-
+        mutate(Term = str_replace(Term, "ref_dCq", "Covariate (Reference dCq)")) |>
+        add_significance(p.col = "p-value", output.col = "Significance")
+        
     test_label <- "ANCOVA"
 
     method <- glue("Two-sided ANCOVA on {format_response(response)} with reference sample {format_response(response)} covariate adjustment.")
@@ -282,8 +280,8 @@ run_mixed_effect <- function(x,
             `Adj. p-value` = adj.p.value
         ) |>
         select(-null.value, -estimate, -std.error) |>
-        mutate(Significance = to_significance(`Adj. p-value`))
-    
+        add_significance(p.col = "Adj. p-value", output.col = "Significance")
+        
         # rename the statistic column based on the type of post-hoc test
         if(post_hoc_method %in% c("Tukey HSD")) {
             post_hoc_res <- post_hoc_res |>
@@ -355,7 +353,7 @@ run_anova <- function(x,
                 `q-value`      = statistic,
                 `Adj. p-value` = adj.p.value
             ) |>
-            mutate(Significance = to_significance(`Adj. p-value`)) |>
+            add_significance(p.col = "Adj. p-value", output.col = "Significance") |>
             select(-null.value, -estimate, -std.error)
         
         post_hoc_method <- "Tukey HSD"
@@ -372,7 +370,7 @@ run_anova <- function(x,
                 `t-value`      = statistic,
                 `Adj. p-value` = adj.p.value
             ) |>
-            mutate(Significance = to_significance(`Adj. p-value`)) |>
+            add_significance(p.col = "Adj. p-value", output.col = "Significance") |>
             select(-null.value, -estimate, -std.error)
         
         post_hoc_method <- "Dunnett"
@@ -447,8 +445,8 @@ run_kruskal <- function(x,
     }
 
     post_hoc_res <- format_pmcmr(post_hoc) |>
-        mutate(Significance = to_significance(p.value),
-               Term         = "Sample") |>
+        add_significance(p.col = "p.value", output.col = "Significance") |>
+        mutate(Term  = "Sample") |>
         rename(
             `z-value` = statistic,
         ) |>
@@ -512,8 +510,8 @@ run_pairwise_ttest <- function(x,
     test_res <- test |>
         select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
                `p-value` = p, `Adj. p-value` = p.adj) |>
-        mutate(Significance = to_significance(`Adj. p-value`))
-    
+        add_significance(p.col = "Adj. p-value", output.col = "Significance")
+        
     if (p.adjust == "none") {
         # drop the adj column in case of no adjustment
         test_res <- select(test_res, -`Adj. p-value`) 
@@ -566,8 +564,8 @@ run_ttest <- function(x,
     test_res <- test |>
         select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
                `p-value` = p) |>
-        mutate(Significance = to_significance(`p-value`))
-    
+        add_significance(p.col = "p-value", output.col = "Significance")
+        
     test_label <- ifelse(
         equal.var,
         "t-test",
@@ -614,8 +612,8 @@ run_pairwise_paired_ttest <- function(x,
     test_res <- test |>
         select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
                `p-value` = p, `Adj. p-value` = p.adj) |>
-        mutate(Significance = to_significance(`Adj. p-value`))
-    
+        add_significance(p.col = "Adj. p-value", output.col = "Significance")
+        
     if (p.adjust == "none") {
         # drop the adj column in case of no adjustment
         test_res <- select(test_res, -`Adj. p-value`) 
@@ -663,8 +661,8 @@ run_paired_ttest <- function(x,
     test_res <- test |>
         select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
                `p-value` = p) |>
-        mutate(Significance = to_significance(`p-value`))
-    
+        add_significance(p.col = "p-value", output.col = "Significance")
+        
     test_label <- "paired t-test"
     
     method <- glue("Two-sided paired t-test on {format_response(response)}.")
@@ -707,8 +705,8 @@ run_pairwise_wilcoxon <- function(x,
     test_res <- test |>
         select(Term = ".y.", group1, group2, `V-value` = statistic,
                `p-value` = p, `Adj. p-value` = p.adj) |>
-        mutate(Significance = to_significance(`Adj. p-value`))
-    
+        add_significance(p.col = "Adj. p-value", output.col = "Significance")
+        
     if (p.adjust == "none") {
         # drop the adj column in case of no adjustment
         test_res <- select(test_res, -`Adj. p-value`) 
@@ -753,8 +751,8 @@ run_wilcoxon <- function(x, response = c("dCq")) {
     test_res <- test |>
         select(Term = ".y.", group1, group2, `V-value` = statistic,
                `p-value` = p) |>
-        mutate(Significance = to_significance(`p-value`))
-
+        add_significance(p.col = "p-value", output.col = "Significance")
+        
     test_label <- "Wilcoxon signed-rank test"
     
     method <- glue("Two-sided Wilcoxon signed-rank test on {format_response(response)}.")
@@ -780,29 +778,51 @@ run_pairwise_mann_whitney <- function(x,
 
     test_formula <- reformulate("Sample", response = response)
     
-    if (comparison == "trt.vs.ctrl") {
-        reference_sample <- x$Sample |> levels() |> head(n=1)
+    # Identify groups
+    groups <- x$Sample |> droplevels() |> levels()
+    if (is.null(groups)) groups <- unique(x$Sample) # fallback in case Sample is not a factor
+    
+    # Define comparisons
+    comparisons_list <- list()
+    
+    if (comparison == "pairwise") {
+        # All pairwise combinations
+        comparisons_list <- combn(groups, 2, simplify = FALSE)
     } else {
-        reference_sample <- NULL # pairwise comparisons
+        # Treatment vs Control (Reference)
+        ref_group <- groups[1]
+        other_groups <- groups[-1]
+        comparisons_list <- lapply(other_groups, function(g) c(ref_group, g))
     }
     
-    test <- rstatix::pairwise_wilcox_test(
-        data      = x,
-        formula   = test_formula,
-        ref.group = reference_sample,
-        paired    = F,
-        p.adjust.method = p.adjust
-    )
+    
 
-    test_res <- test |>
-        select(Term = ".y.", group1, group2, `U-value` = statistic,
-               `p-value` = p, `Adj. p-value` = p.adj) |>
-        mutate(Significance = to_significance(`Adj. p-value`))
+    # Run tests manually
+    test_res <- map(comparisons_list, function(sample_pair) {
+        subset_data <- x |> filter(Sample %in% sample_pair)
+        
+        wilcox.test(test_formula, data = subset_data) |>
+            broom::tidy() |>
+            mutate(Term = response,
+                   group1 = sample_pair[[1]],
+                   group2 = sample_pair[[2]],
+                   method = str_extract(method, "(exact|with continuity correction)") |>
+                                        str_to_sentence()
+            ) |>
+            select(Term, group1, group2, `U-value` = statistic, `p-value` = p.value, Details = method)
+    }) |>
+        bind_rows()
     
     if (p.adjust == "none") {
         # drop the adj column in case of no adjustment
-        test_res <- select(test_res, -`Adj. p-value`) 
-    } 
+        test_res <- test_res |>
+            add_significance(p.col = "p-value", output.col = "Significance")
+    } else {
+        test_res <- test_res |>
+            mutate("Adj. p-value" = p.adjust(`p-value`, method = p.adjust)) |>
+            add_significance(p.col = "Adj. p-value", output.col = "Significance")
+    
+    }
     
     adjust_label <- ifelse(
         p.adjust != "none",
@@ -835,20 +855,24 @@ run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
 
     test_formula <- reformulate("Sample", response = response)
     
-    test <- rstatix::wilcox_test(
-        data      = x,
-        formula   = test_formula,
-        paired    = F
-    )
+    # use stats::wilcox.test in place of rstatix::wilcox_test because it fails when 
+    test <- wilcox.test(formula = test_formula, data = x)
     
     test_res <- test |>
-        select(Term = ".y.", group1, group2, `U-value` = statistic,
-               `p-value` = p) |>
-        mutate(Significance = to_significance(`p-value`))
+        broom::tidy() |>
+        mutate(Term = response,
+               group1 = x$Sample[[1]],
+               group2 = x$Sample[[2]],
+               ) |>
+        add_significance(p.col = "p.value", output.col = "Significance") |>
+        select(Term, group1, group2, `U-value` = statistic, `p-value` = p.value, Significance)
+        
+
+    test_label <- case_match(test$method,
+                        "Wilcoxon rank sum test with continuity correction" ~ "Wilcoxon-Mann–Whitney test with continuity correction",
+                        "Wilcoxon rank sum exact test" ~ "Wilcoxon-Mann–Whitney test")
     
-    test_label <- "Wilcoxon-Mann–Whitney test"
-    
-    method <- glue("Two-sided Wilcoxon-Mann–Whitney test on {format_response(response)}.")
+    method <- glue("Two-sided {test_label} on {format_response(response)}.")
     
     list(
         test_res   = test_res,
@@ -868,13 +892,13 @@ run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
 # run_pairwise_paired_ttest(x, comparison = "trt.vs.ctrl", response = "dCq", p.adjust = "BH")
 # run_pairwise_ttest(x, comparison = "trt.vs.ctrl", response = "ddCq", p.adjust = "BH")
 # run_pairwise_wilcoxon(x, comparison = "trt.vs.ctrl", response = "dCq", p.adjust = "BH")
-# run_pairwise_mann_whitney(x, comparison = "trt.vs.ctrl", response = "ddCq", p.adjust = "BH")
+run_pairwise_mann_whitney(x, comparison = "trt.vs.ctrl", response = "ddCq", p.adjust = "BH")
 # x_2 <- x |> filter(Sample %in% c("Ctrl", "TrtA"))
-# run_ancova_2_sample(x, response = "dCq")
-# run_paired_ttest(x, response = "dCq")
-# run_ttest(x, response = "ddCq")
-# run_wilcoxon(x, response = "dCq")
-# run_mann_whitney(x, response = "ddCq")
+# run_ancova_2_sample(x_2, response = "dCq")
+# run_paired_ttest(x_2, response = "dCq")
+# run_ttest(x_2, response = "ddCq")
+# run_wilcoxon(x_2, response = "dCq")
+# run_mann_whitney(x_2, response = "ddCq")
 
 # TODO:
 # protect post-hoc test
