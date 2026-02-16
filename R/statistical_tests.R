@@ -76,14 +76,14 @@ run_ancova <- function(x,
 
     omnibus_res <- broom::tidy(omnibus) |>
         rename(
-            Term       = term,
+            Source     = term,
             Df         = df,
             `Sum Sq`   = sumsq,
             `Mean Sq`  = meansq,
             `F-value`  = statistic,
             `p-value`  = p.value
         ) |>
-        mutate(Term = str_replace(Term, "ref_dCq", "Covariate (Reference dCq)"))
+        mutate(Source = str_replace(Source, "ref_dCq", "Covariate (Reference dCq)"))
 
     omnibus_label <- glue(
         "ANCOVA (adj. ref dCq): Sample F({sample_df},{residuals_df}) = {sample_f_value}, p = {prettyNum(signif(omnibus_pvalue, 2))}",
@@ -150,24 +150,29 @@ run_ancova_2_sample <- function(x, response = c("dCq")) {
 
     test_res <- broom::tidy(test) |>
         rename(
-            Term       = term,
+            Source     = term,
             Df         = df,
             `Sum Sq`   = sumsq,
             `Mean Sq`  = meansq,
             `F-value`  = statistic,
             `p-value`  = p.value
         ) |>
-        mutate(Term = str_replace(Term, "ref_dCq", "Covariate (Reference dCq)")) |>
-        add_signif(p.col = "p-value", output.col = "Significance")
-        
+        mutate(Source = str_replace(Source, "ref_dCq", "Covariate (Reference dCq)"),
+               Term   = response,
+               group1 = ifelse(Source == "Sample", levels(x$Sample)[1], NA),
+               group2 = ifelse(Source == "Sample", levels(x$Sample)[2], NA)) |>
+        add_signif(p.col = "p-value", output.col = "Significance") |>
+        relocate(c(group1, group2), .after = Source) |>
+        relocate(Term, .before = Source) 
+    
     test_label <- "ANCOVA"
 
     method <- glue("Two-sided ANCOVA on {format_response(response)} with reference sample {format_response(response)} covariate adjustment.")
 
     list(
-        test_res        = test_res,
-        test_label      = test_label,
-        method          = method
+        test_res       = test_res,
+        test_label     = test_label,
+        method         = method
     )
 }
 
@@ -197,7 +202,7 @@ run_mixed_effect <- function(x,
             mutate(NumDF = round(NumDF, 3),
                    DenDF = round(DenDF, 3)) |>
             rename(
-                Term             = term,
+                Source           = term,
                 `Sum Sq`         = sumsq,
                 `Mean Sq`        = meansq,
                 `Numerator Df`   = NumDF,
@@ -240,7 +245,7 @@ run_mixed_effect <- function(x,
         anova_res      <- anova(omnibus)
         omnibus_pvalue <- anova_res["Sample", "p-value"]
 
-        omnibus_res <- as_tibble(anova_res, rownames = "Term") |>
+        omnibus_res <- as_tibble(anova_res, rownames = "Source") |>
             mutate(numDF = round(numDF, 3),
                    denDF = round(denDF, 3)) |>
             rename(
@@ -250,9 +255,9 @@ run_mixed_effect <- function(x,
 
         omnibus_label <- glue(
             "Mixed-effect model (unequal var): Sample F({numDf}, {denDf}) = {sample_f}, p = {prettyNum(signif(omnibus_pvalue, 2))}",
-            sample_f = round(omnibus_res$`F-value`[omnibus_res$Term == "Sample"], 2),
-            numDf    = round(omnibus_res$`Numerator Df`[omnibus_res$Term == "Sample"], 2),
-            denDf    = round(omnibus_res$`Denominator Df`[omnibus_res$Term == "Sample"], 2)
+            sample_f = round(omnibus_res$`F-value`[omnibus_res$Source == "Sample"], 2),
+            numDf    = round(omnibus_res$`Numerator Df`[omnibus_res$Source == "Sample"], 2),
+            denDf    = round(omnibus_res$`Denominator Df`[omnibus_res$Source == "Sample"], 2)
         )
 
         # Post-hoc via emmeans with Satterthwaite df
@@ -275,7 +280,7 @@ run_mixed_effect <- function(x,
         broom::tidy() |>
         format_emmeans() |>
         rename(
-            Term = term,
+            Term           = term,
             Df             = df,
             `Adj. p-value` = adj.p.value
         ) |>
@@ -325,7 +330,7 @@ run_anova <- function(x,
 
     omnibus_res <- broom::tidy(omnibus) |>
         rename(
-            Term       = term,
+            Source     = term,
             Df         = df,
             `Sum Sq`   = sumsq,
             `Mean Sq`  = meansq,
@@ -394,7 +399,7 @@ run_anova <- function(x,
 run_kruskal <- function(x,
                         comparison = c("pairwise", "trt.vs.ctrl"),
                         response   = c("ddCq", "exp_ddCq"),
-                        p_adjust_method   = c("BH", "holm", "none")) {
+                        p_adjust_method = c("BH", "holm", "none")) {
 
     comparison <- match.arg(comparison)
     response   <- match.arg(response)
@@ -416,8 +421,8 @@ run_kruskal <- function(x,
             Df        = parameter,
             `p-value` = p.value
         ) |>
-        mutate(Term = "Sample") |> 
-        select(Term, `Chi-sq`, Df, `p-value`)
+        mutate(Source = "Sample") |> 
+        select(Source, `Chi-sq`, Df, `p-value`)
 
     omnibus_label <- glue(
         "Kruskal-Wallis: χ²({df}) = {chi_sq}, p = {prettyNum(signif(omnibus_pvalue, 2))}",
@@ -446,7 +451,7 @@ run_kruskal <- function(x,
 
     post_hoc_res <- format_pmcmr(post_hoc) |>
         add_signif(p.col = "p.value", output.col = "Significance") |>
-        mutate(Term  = "Sample") |>
+        mutate(Term = "Sample") |>
         rename(
             `z-value` = statistic,
         ) |>
