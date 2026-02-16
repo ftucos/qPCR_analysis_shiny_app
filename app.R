@@ -403,7 +403,7 @@ ui <- page_fillable(
                                 class = "alert alert-warning py-2 px-3 mb-3",
                                 style = "font-size: 0.85em;",
                                 bs_icon("exclamation-triangle"),
-                                textOutput("stats_dropped_warning", inline = TRUE)
+                                uiOutput("stats_dropped_warning")
                             )
                         ),
                         # Omnibus section (for ANCOVA, ANOVA, Mixed Effect, Kruskal-Wallis)
@@ -1134,11 +1134,14 @@ server <- function(input, output, session) {
     # Derived Reactive: number of biological replicates ------------------------
     
     n_bio_reps <- reactive({
-        req(dCq_data())
-        req(nrow(dCq_data()) > 0)
+        req(dCq_rep_summary())
+        req(nrow(dCq_rep_summary()) > 0)
+        req(input$select_out_target)
         
-        if (input$include_replicates & "Replicate" %in% names(dCq_data())) {
-            dCq_data() |>
+        if (input$include_replicates & "Replicate" %in% names(dCq_rep_summary())) {
+            dCq_rep_summary() |>
+                filter(!is.na(dCq_mean)) |>
+                filter(Target == input$select_out_target) |>
                 pull("Replicate") |>
                 unique() |>
                 length()
@@ -1165,17 +1168,31 @@ server <- function(input, output, session) {
             length()
     })
 
-    # Derived Reactive: to decide the proper parametric statistical test to use
+    # Derived Reactive: n viable samples to select the proper parametric statistical test to use
     n_finite_samples <- reactive({
-        req(dCq_rep_summary())
         req(input$select_out_target) 
-        
-        dCq_rep_summary() |>
-            filter(Target == input$select_out_target) |>
-            filter(!is.finite(dCq_mean)) |>
-            pull("Sample") |>
-            unique() |>
-            length()
+        req(input$stats_metric)
+
+        if(input$stats_metric == "dCq") {
+            req(dCq_rep_summary())
+
+            dCq_rep_summary() |>
+                filter(Target == input$select_out_target) |>
+                filter(is.finite(dCq_mean)) |>
+                pull("Sample") |>
+                unique() |>
+                length()
+        } else {
+            req(ddCq_rep_summary())
+
+            stat_metric <- paste0(input$stats_metric, "_mean")
+            ddCq_rep_summary() |>
+                filter(Target == input$select_out_target) |>
+                filter(is.finite(.data[[stat_metric]])) |>
+                pull("Sample") |>
+                unique() |>
+                length()
+        }
     })
     
     # make it available to javascript
@@ -1550,68 +1567,80 @@ server <- function(input, output, session) {
     outputOptions(output, "show_post_hoc_test", suspendWhenHidden = FALSE)
     # Observer: Update stats_test choices based on metric and sample count ----------
     
-    observeEvent(list(input$stats_metric, n_samples(), n_bio_reps()), {
+    observeEvent(list(input$stats_metric, n_samples(), n_finite_samples(), n_bio_reps()), {
         req(input$stats_metric)
         req(n_samples() >= 2)
+        req(n_bio_reps() >= 2)
         
         metric <- input$stats_metric
         # Non-parametric tests require at least 5 biological replicates
         include_nonparam <- n_bio_reps() >= 5
+
+        # Number of samples
+        n_samples <- n_samples()
+        # Number of viable samples for parametric test
+        n_finite_samples <- n_finite_samples()
+        
+        print(paste0("n_bio_reps ", n_bio_reps()))
+        print(paste0("n_samples ", n_samples))
+        print(paste0("n_finite_samples ", n_finite_samples))
         
         # Determine available tests and default based on metric and sample count
-        if (n_samples() > 2) {
+        # parametric choices
+        choices <- list()
+        default <- NULL
+
+        # parametric tests choices
+        if (n_finite_samples > 2) {
             # > 2 samples
             if (metric == "dCq") {
                 # dCq: comparison across samples accounting for HK variance
-                choices <- list(
-                    "Parametric" = c(
+                choices[["Parametric"]] <- c(
                         "ANCOVA" = "ancova",
                         "Mixed Effect Model" = "mixed_effect",
                         "Pairwise paired t-test" = "pairwise_paired_ttest"
                     )
-                )
-                if (include_nonparam) {
-                    choices[["Non-parametric"]] <- c("Pairwise Wilcoxon signed-rank (paired)" = "pairwise_wilcoxon")
-                }
                 default <- "ancova"
             } else {
                 # ddCq or exp_ddCq: standard group comparisons
-                choices <- list(
-                    "Parametric" = c(
+                choices[["Parametric"]] <- c(
                         "ANOVA" = "anova",
                         "Pairwise t-test" = "pairwise_ttest"
                     )
-                )
-                if (include_nonparam) {
-                    choices[["Non-parametric"]] <- c(
-                        "Kruskal-Wallis" = "kruskal",
-                        "Pairwise Wilcoxon-Mann-Whitney" = "pairwise_mann_whitney"
-                    )
-                }
                 default <- "anova"
             }
         } else {
             # = 2 samples
             if (metric == "dCq") {
-                choices <- list(
-                    "Parametric" = c(
+                choices[["Parametric"]] <- c(
                         "ANCOVA" = "ancova_2_sample",
                         "Paired t-test" = "paired_ttest"
                     )
-                )
-                if (include_nonparam) {
-                    choices[["Non-parametric"]] <- c("Wilcoxon signed-rank (paired)" = "wilcoxon")
-                }
                 default <- "ancova_2_sample"
             } else {
                 # ddCq or exp_ddCq
-                choices <- list(
-                    "Parametric" = c("t-test" = "ttest")
-                )
-                if (include_nonparam) {
+                choices[["Parametric"]] <- c("t-test" = "ttest")
+                default <- "ttest"
+            }
+        }
+
+        # non-parametric tests choices (doesn't require samples to be finite)
+        if (include_nonparam) {
+            if (n_samples > 2) {
+                if (metric == "dCq") {
+                    choices[["Non-parametric"]] <- c("Pairwise Wilcoxon signed-rank (paired)" = "pairwise_wilcoxon")
+                } else {
+                    choices[["Non-parametric"]] <- c(
+                        "Kruskal-Wallis" = "kruskal",
+                        "Pairwise Wilcoxon-Mann-Whitney" = "pairwise_mann_whitney"
+                    )
+                }
+            } else {
+                if (metric == "dCq") {
+                    choices[["Non-parametric"]] <- c("Wilcoxon signed-rank (paired)" = "wilcoxon")
+                } else {
                     choices[["Non-parametric"]] <- c("Wilcoxon-Mann-Whitney" = "mann_whitney")
                 }
-                default <- "ttest"
             }
         }
         
@@ -1659,8 +1688,6 @@ server <- function(input, output, session) {
         comparison <- input$stats_comparison
         p_adjust   <- input$stats_multiple_comparison_adjust
         
-        
-        
         # Prepare data based on metric
         if (response == "dCq") {
             # For dCq tests, we need dCq with reference sample info
@@ -1680,48 +1707,81 @@ server <- function(input, output, session) {
                 drop_na(ddCq, exp_ddCq)
         }
         
-        # for ANCOVA and paired t-test drop entire replicate run
-        if (test %in% c("ancova", "pairwise_paired_ttest")) {
-            # Find replicates with any Inf/undetected values
-            reps_with_inf <- data |>
-                filter(!is.finite(.data[[response]])) |>
+        # --- Handle Inf (undetected) values based on test type ---
+        nonparam_tests <- c("kruskal", "pairwise_wilcoxon", "wilcoxon",
+                            "pairwise_mann_whitney", "mann_whitney")
+        
+        n_dropped_samples <- 0
+        n_dropped_points  <- 0
+        n_dropped_reps    <- 0
+        
+        if (test %in% nonparam_tests) {
+            # Non-parametric: replace Inf with 999 to preserve rank information
+            inf_replacement <- 999
+            data <- data |>
+                mutate(!!response := if_else(
+                    !is.finite(.data[[response]]), inf_replacement, .data[[response]]
+                ))
+            print("replaced inf with 999")
+            print("is finite?")
+            print(table(is.finite(data[[response]])))
+            
+        } else if (test %in% c("ancova", "ancova_2_sample")) {
+            # ANCOVA: drop entire replicate run only if the covariate (ref_dCq) is Inf
+            reps_with_inf_covariate <- data |>
+                filter(!is.finite(ref_dCq)) |>
                 pull(Replicate) |>
                 unique()
             
-            n_dropped_reps <- length(reps_with_inf)
-            n_dropped_points <- 0  # no individual data points dropped
-            
-            # Drop entire replicates containing undetected values
+            n_dropped_reps <- length(reps_with_inf_covariate)
             if (n_dropped_reps > 0) {
                 data <- data |>
-                    filter(!Replicate %in% reps_with_inf)
+                    filter(!Replicate %in% reps_with_inf_covariate)
             }
-        }
-        # replace Inf with 999 for non-parametric tests (to avoid error in finding the max/min when more than 1 Inf is present)
-        else if (test %in% c("kruskal", "pairwise_wilcoxon", "pairwise_mann_whitney")) {
-            inf_replacemenet <- 999
+
+            # drop samples with all infinite values 
             data <- data |>
-                mutate(!!response := if_else(!is.finite(.data[[response]]), inf_replacemenet, .data[[response]]))
+                group_by(Sample) %>%
+                filter(any(is.finite(.data[[response]]))) %>%
+                ungroup()
+
+            n_dropped_samples <- n_samples() - length(unique(data$Sample))
             
-            n_dropped_points <- 0
-            n_dropped_reps <- 0
-        }
-        # Filter out Inf values (undetected) for other parametric tests 
-        else {
-            n_before <- nrow(data)
-            data_filtered <- data |>
-                filter(is.finite(.data[[response]]))
-            n_dropped_points <- n_before - nrow(data_filtered)
-            n_dropped_reps <- 0
+            # Then also filter individual Inf values in the response
+            n_before <- nrow(data) 
+            data <- data |> filter(is.finite(.data[[response]]))
+            n_dropped_points <- n_before - nrow(data) # note this wil report removed points in addition to the eventual replicate run
+        } else {
+            # All other parametric tests: 
+
+            # drop samples with all infinite values 
+            data <- data |>
+                group_by(Sample) %>%
+                filter(any(is.finite(.data[[response]]))) %>%
+                ungroup() |>
+                droplevels()
+
+            n_dropped_samples <- n_samples() - length(unique(data$Sample))
             
-            # Use filtered data for analysis
-            data <- data_filtered
+            # Then also filter individual Inf values in the response
+            data <- data |> mutate(
+                # replace not finite values with NA (pairwise paired t-test requires complete values)
+                !!response := if_else(
+                    !is.finite(.data[[response]]), NA_real_, .data[[response]]
+                )
+            ) 
+
+            n_after <- nrow(data |> tidyr::drop_na(all_of(response)))
+            n_dropped_points <- nrow(data) - n_after # additioanlly dropped data points
         }
         
-        # calculate samples after removing NA and eventual Inf for the selected target
+        # drop unused sample levels after NA filtering
+        data <- data |> droplevels()
+
+        # Recalculate available samples after filtering
         n_samples <- data$Sample |> unique() |> length()
         req(n_samples > 1)
-        
+
         # Run appropriate test based on selection
         tryCatch({
             result <- switch(test,
@@ -1729,22 +1789,23 @@ server <- function(input, output, session) {
                              "ancova_2_sample" = run_ancova_2_sample(data, response = response),
                              "mixed_effect" = run_mixed_effect(data, response = response, comparison = comparison, equal.var = equal_var),
                              "anova" = run_anova(data, response = response,comparison = comparison),
-                             "kruskal" = run_kruskal(data, response = response, comparison = comparison, p.adjust = p_adjust),
-                             "pairwise_ttest" = run_pairwise_ttest(data, response = response, comparison = comparison, equal.var = equal_var, p.adjust = p_adjust),
+                             "kruskal" = run_kruskal(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
+                             "pairwise_ttest" = run_pairwise_ttest(data, response = response, comparison = comparison, equal.var = equal_var, p_adjust_method = p_adjust),
                              "ttest" = run_ttest(data, response = response, equal.var = equal_var),
-                             "pairwise_paired_ttest" = run_pairwise_paired_ttest(data, response = response, comparison = comparison, p.adjust = p_adjust),
+                             "pairwise_paired_ttest" = run_pairwise_paired_ttest(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
                              "paired_ttest" = run_paired_ttest(data, response = response),
-                             "pairwise_wilcoxon" = run_pairwise_wilcoxon(data, response = response, comparison = comparison, p.adjust = p_adjust),
+                             "pairwise_wilcoxon" = run_pairwise_wilcoxon(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
                              "wilcoxon" = run_wilcoxon(data, response = response),
-                             "pairwise_mann_whitney" = run_pairwise_mann_whitney(data, response = response, comparison = comparison, p.adjust = p_adjust),
+                             "pairwise_mann_whitney" = run_pairwise_mann_whitney(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
                              "mann_whitney" = run_mann_whitney(data, response = response)
             )
             # Add dropped count to result for warning display
             result$n_dropped_points <- n_dropped_points
             result$n_dropped_reps <- n_dropped_reps
+            result$n_dropped_samples <- n_dropped_samples
             result
         }, error = function(e) {
-            list(error = as.character(e$message), n_dropped_points = n_dropped_points, n_dropped_reps = n_dropped_reps)
+            list(error = as.character(e$message), n_dropped_points = n_dropped_points, n_dropped_reps = n_dropped_reps, n_dropped_samples = n_dropped_samples)
             # print the error in the consol
             print(e)
         })
@@ -1765,26 +1826,43 @@ server <- function(input, output, session) {
     })
     outputOptions(output, "has_omnibus_test", suspendWhenHidden = FALSE)
     
-    # Output: Dropped count for Inf values (for conditional warning) -----------
+    # Output: Dropped count for Inf values (to enable conditional warning panel) -----------
     output$stats_dropped_count <- reactive({
         req(stats_result())
-        max(stats_result()$n_dropped_points, stats_result()$n_dropped_reps)
+        max(0, stats_result()$n_dropped_points, stats_result()$n_dropped_reps, stats_result()$n_dropped_samples)
     })
     outputOptions(output, "stats_dropped_count", suspendWhenHidden = FALSE)
     
     # Output: Warning text for dropped Inf values ------------------------------
-    output$stats_dropped_warning <- renderText({
+    output$stats_dropped_warning <- renderUI({
         req(stats_result())
-        req(stats_result()$n_dropped_points > 0 || stats_result()$n_dropped_reps > 0)
+        n_dropped_samples <- stats_result()$n_dropped_samples
+        n_dropped_points  <- stats_result()$n_dropped_points
+        n_dropped_reps    <- stats_result()$n_dropped_reps
         
-        n_dropped_points <- stats_result()$n_dropped_points
-        n_dropped_reps <- stats_result()$n_dropped_reps
+        req(n_dropped_points > 0 || n_dropped_reps > 0 || n_dropped_samples > 0)
         
-        if (n_dropped_reps > 0) {
-            glue("{n_dropped_reps} replicate run{ifelse(n_dropped_reps > 1, 's', '')} with undetected values excluded from the analysis.")
-        } else {
-            glue("{n_dropped_points} data point{ifelse(n_dropped_points > 1, 's', '')} with undetected values (Inf) excluded from the analysis.")
-        }
+
+        sample_msg <- if(n_dropped_samples > 0) {
+                glue("{n_dropped_samples} sample{ifelse(n_dropped_samples > 1, 's', '')} with no detected value{ifelse(n_dropped_samples > 1, 's were', ' was')} excluded from the analysis.")  
+            } else {NULL}
+
+        rep_msg <- if(n_dropped_reps > 0) {
+                glue("{n_dropped_reps} replicate run{ifelse(n_dropped_reps > 1, 's', '')} with undetected value{ifelse(n_dropped_reps > 1, 's', '')} in reference dCq {ifelse(n_dropped_reps > 1, 'were', 'was')} excluded from the analysis.")
+            } else {NULL}
+
+        points_msg <- if(n_dropped_points > 0) {
+                glue("{n_dropped_points} data point{ifelse(n_dropped_points > 1, 's', '')} with undetected value{ifelse(n_dropped_points > 1, 's were', ' was')} excluded from the analysis.")
+            } else {NULL}
+        
+        tags$ul(
+            lapply(c(sample_msg, rep_msg, points_msg),
+                  function(x) tags$li(x)
+            )
+        )
+
+        # paste0(c(sample_msg, rep_msg, points_msg),
+        #        collapse = "\\n")
     })
     
     # Output: Omnibus badge (brief p-value indicator) --------------------------
@@ -2112,7 +2190,7 @@ server <- function(input, output, session) {
     
     # Update default plot dimensions based on sample count (1 cm per sample, 4 cm height)
     observeEvent(n_samples(), {
-        req(n_samples() >= 2)
+        req(n_samples() >= 1)
         updateNumericInput(session, "export_plot_width", value = n_samples())
     })
     
