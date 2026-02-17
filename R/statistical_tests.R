@@ -24,7 +24,7 @@ format_response <- function(response) {
 }
 
 # Helper: split contrast column to group1 and group2 for ggpubr compatibility
-format_emmeans <- function(df) {
+format_emmeans <- function(df, sample_sizes) {
     df |>
         mutate(contrast = ifelse(
             str_detect(contrast, "\\(.*\\) - \\(.*\\)"),
@@ -32,14 +32,20 @@ format_emmeans <- function(df) {
             str_split(contrast, " - ")
         )) |>
         rename(group = contrast) |>
-        unnest_wider(group, names_sep = "")
+        unnest_wider(group, names_sep = "") |>
+        left_join(sample_sizes |> rename("n1" = "n"), by = c("group1" = "Sample")) |>
+        left_join(sample_sizes |> rename("n2" = "n"), by = c("group2" = "Sample")) |>
+        relocate(c("n1", "n2"), .after = "group2")
 }
 
 # Helper: format PMCMRplus matrix output to tidy format with group columns
-format_pmcmr <- function(pmcmr_result) {
+format_pmcmr <- function(pmcmr_result, sample_sizes) {
     PMCMRplus::toTidy(pmcmr_result) |>
         rename(group1 = group1, group2 = group2) |>
-        add_signif(p.col = "p.value", output.col = "Significance")
+        add_signif(p.col = "p.value", output.col = "Significance") |>
+        left_join(sample_sizes |> rename("n1" = "n"), by = c("group1" = "Sample")) |>
+        left_join(sample_sizes |> rename("n2" = "n"), by = c("group2" = "Sample")) |>
+        relocate(c("n1", "n2"), .after = "group2")
 }
 
 # Helper: format pairwise.*.test output to tidy format
@@ -68,6 +74,10 @@ run_ancova <- function(x,
     comparison <- match.arg(comparison)
 
     test_formula <- dCq ~ Sample + ref_dCq
+    
+    sample_sizes <- x |>
+      tidyr::drop_na(dCq, ref_dCq) |>
+      count(Sample)
 
     # Omnibus: ANCOVA
     omnibus <- aov(test_formula, data = x)
@@ -76,14 +86,14 @@ run_ancova <- function(x,
 
     omnibus_res <- broom::tidy(omnibus) |>
         rename(
-            Source     = term,
-            Df         = df,
-            `Sum Sq`   = sumsq,
-            `Mean Sq`  = meansq,
-            `F-value`  = statistic,
-            `p-value`  = p.value
+            Term      = term,
+            Df        = df,
+            `Sum Sq`  = sumsq,
+            `Mean Sq` = meansq,
+            `F-value` = statistic,
+            `p-value` = p.value
         ) |>
-        mutate(Source = str_replace(Source, "ref_dCq", "Covariate (Reference dCq)"))
+        mutate(Term = str_replace(Term, "ref_dCq", "Covariate (Reference dCq)"))
 
     omnibus_label <- glue(
         "ANCOVA (adj. ref dCq): Sample F({sample_df},{residuals_df}) = {sample_f_value}, p = {prettyNum(signif(omnibus_pvalue, 2))}",
@@ -99,7 +109,7 @@ run_ancova <- function(x,
         post_hoc <- contrast(emm, method = "pairwise", adjust = "tukey")
         post_hoc_res <- post_hoc |>
             broom::tidy() |>
-            format_emmeans() |>
+            format_emmeans(sample_sizes = sample_sizes) |>
             rename(
                 Term           = term,
                 Df             = df,
@@ -108,6 +118,7 @@ run_ancova <- function(x,
             ) |>
             add_signif(p.col = "Adj. p-value", output.col = "Significance") |>
             select(-null.value, -estimate, -std.error)
+        
         post_hoc_method <- "Tukey HSD"
 
     } else {
@@ -115,7 +126,7 @@ run_ancova <- function(x,
         post_hoc <- contrast(emm, method = "trt.vs.ctrl", adjust = "mvt")
         post_hoc_res <- post_hoc |>
             broom::tidy() |>
-            format_emmeans() |>
+            format_emmeans(sample_sizes = sample_sizes) |>
             rename(
                 Term           = term,
                 Df             = df,
@@ -143,6 +154,10 @@ run_ancova <- function(x,
 run_ancova_2_sample <- function(x, response = c("dCq")) {
 
     response <- match.arg(response)
+    
+    sample_sizes <- x |>
+      tidyr::drop_na(dCq, ref_dCq) |>
+      count(Sample)
 
     test_formula <- dCq ~ Sample + ref_dCq
 
@@ -150,20 +165,20 @@ run_ancova_2_sample <- function(x, response = c("dCq")) {
 
     test_res <- broom::tidy(test) |>
         rename(
-            Source     = term,
+            Term       = term,
             Df         = df,
             `Sum Sq`   = sumsq,
             `Mean Sq`  = meansq,
             `F-value`  = statistic,
             `p-value`  = p.value
         ) |>
-        mutate(Source = str_replace(Source, "ref_dCq", "Covariate (Reference dCq)"),
-               Term   = response,
-               group1 = ifelse(Source == "Sample", levels(x$Sample)[1], NA),
-               group2 = ifelse(Source == "Sample", levels(x$Sample)[2], NA)) |>
+        mutate(Term = str_replace(Term, "ref_dCq", "Covariate (Reference dCq)"),
+               group1 = ifelse(Term != "Residuals", levels(x$Sample)[1], NA),
+               group2 = ifelse(Term != "Residuals", levels(x$Sample)[2], NA)) |>
+        left_join(sample_sizes |> rename("n1" = "n"), by = c("group1" = "Sample")) |>
+        left_join(sample_sizes |> rename("n2" = "n"), by = c("group2" = "Sample")) |>
         add_signif(p.col = "p-value", output.col = "Significance") |>
-        relocate(c(group1, group2), .after = Source) |>
-        relocate(Term, .before = Source) 
+        relocate(c("group1", "group2", "n1", "n2"), .after = Term)
     
     test_label <- "ANCOVA"
 
@@ -187,6 +202,10 @@ run_mixed_effect <- function(x,
     response <- match.arg(response)
     comparison <- match.arg(comparison)
     stopifnot(is.logical(equal.var), length(equal.var) == 1L, !is.na(equal.var))
+    
+    sample_sizes <- x |>
+      tidyr::drop_na(all_of(response)) |>
+      count(Sample)
 
     if (equal.var) {
         # Equal variance: use lmer with random intercept for Replicate
@@ -202,7 +221,7 @@ run_mixed_effect <- function(x,
             mutate(NumDF = round(NumDF, 3),
                    DenDF = round(DenDF, 3)) |>
             rename(
-                Source           = term,
+                Term           = term,
                 `Sum Sq`         = sumsq,
                 `Mean Sq`        = meansq,
                 `Numerator Df`   = NumDF,
@@ -245,7 +264,7 @@ run_mixed_effect <- function(x,
         anova_res      <- anova(omnibus)
         omnibus_pvalue <- anova_res["Sample", "p-value"]
 
-        omnibus_res <- as_tibble(anova_res, rownames = "Source") |>
+        omnibus_res <- as_tibble(anova_res, rownames = "Term") |>
             mutate(numDF = round(numDF, 3),
                    denDF = round(denDF, 3)) |>
             rename(
@@ -255,9 +274,9 @@ run_mixed_effect <- function(x,
 
         omnibus_label <- glue(
             "Mixed-effect model (unequal var): Sample F({numDf}, {denDf}) = {sample_f}, p = {prettyNum(signif(omnibus_pvalue, 2))}",
-            sample_f = round(omnibus_res$`F-value`[omnibus_res$Source == "Sample"], 2),
-            numDf    = round(omnibus_res$`Numerator Df`[omnibus_res$Source == "Sample"], 2),
-            denDf    = round(omnibus_res$`Denominator Df`[omnibus_res$Source == "Sample"], 2)
+            sample_f = round(omnibus_res$`F-value`[omnibus_res$Term == "Sample"], 2),
+            numDf    = round(omnibus_res$`Numerator Df`[omnibus_res$Term == "Sample"], 2),
+            denDf    = round(omnibus_res$`Denominator Df`[omnibus_res$Term == "Sample"], 2)
         )
 
         # Post-hoc via emmeans with Satterthwaite df
@@ -278,7 +297,7 @@ run_mixed_effect <- function(x,
     # Format post-hoc results
     post_hoc_res <- post_hoc |>
         broom::tidy() |>
-        format_emmeans() |>
+        format_emmeans(sample_sizes = sample_sizes) |>
         rename(
             Term           = term,
             Df             = df,
@@ -311,6 +330,82 @@ run_mixed_effect <- function(x,
     )
 }
 
+# Mixed Effect Model (2 samples) -----------------------------------------------
+run_mixed_effect_2_sample <- function(x,
+                             response = c("dCq"),
+                             equal.var  = TRUE) {
+  
+  response <- match.arg(response)
+  stopifnot(is.logical(equal.var), length(equal.var) == 1L, !is.na(equal.var))
+  
+  sample_sizes <- x |>
+    tidyr::drop_na(all_of(response)) |>
+    count(Sample)
+  
+  if (equal.var) {
+    # Equal variance: use lmer with random intercept for Replicate
+    test_formula <- dCq ~ Sample + (1 | Replicate)
+    test <- lmerTest::lmer(test_formula, data = x)
+    test_label <- "Mixed-effect model"
+    
+    # Extract F-test for Sample fixed effect
+
+    test_res <- anova(test) |>
+      broom::tidy() |>
+      mutate(NumDF = round(NumDF, 3),
+             DenDF = round(DenDF, 3)
+             ) |>
+      rename(
+        Term             = term,
+        `Sum Sq`         = sumsq,
+        `Mean Sq`        = meansq,
+        `Numerator Df`   = NumDF,
+        `Denominator Df` = DenDF,
+        `F-value`        = statistic,
+        `p-value`        = p.value
+      ) 
+    
+    
+  } else {
+    # Unequal variance: use nlme::lme with varIdent
+    test_formula <- dCq ~ Sample
+    test <- nlme::lme(
+      test_formula,
+      random  = ~ 1 | Replicate,
+      weights = nlme::varIdent(form = ~ 1 | Sample),
+      data    = x
+    )
+    test_label <- "Mixed-effect model (unequal variances)"
+    
+    # Extract F-test
+    test_res <- anova(test) |>
+      as_tibble(rownames = "Term") |>
+      mutate(numDF = round(numDF, 3),
+             denDF = round(denDF, 3)) |>
+      rename(
+        `Numerator Df`   = numDF,
+        `Denominator Df` = denDF
+      )
+  }
+  
+  # add groups and number of
+  test_res <- test_res |>
+    mutate(group1 = levels(x$Sample)[1],
+           group2 = levels(x$Sample)[2]) |>
+   left_join(sample_sizes |> rename("n1" = "n"), by = c("group1" = "Sample")) |>
+   left_join(sample_sizes |> rename("n2" = "n"), by = c("group2" = "Sample")) |>
+   add_signif(p.col = "p-value", output.col = "Significance") |>
+   relocate(c("group1", "group2", "n1", "n2"), .after = "Term")
+  
+  method <- glue("Two-sided {test_label} on {format_response(response)} with Replicate as random effect intercept.")
+  
+  list(
+    test_res   = test_res,
+    test_label = test_label,
+    method     = method
+  )
+}
+
 # One-way ANOVA ----------------------------------------------------------------
 # For ddCq or exp_ddCq (independent samples)
 
@@ -320,6 +415,10 @@ run_anova <- function(x,
 
     comparison <- match.arg(comparison)
     response   <- match.arg(response)
+    
+    sample_sizes <- x |>
+      tidyr::drop_na(all_of(response)) |>
+      count(Sample)
 
     test_formula <- reformulate("Sample", response = response)
 
@@ -330,7 +429,7 @@ run_anova <- function(x,
 
     omnibus_res <- broom::tidy(omnibus) |>
         rename(
-            Source     = term,
+            Term     = term,
             Df         = df,
             `Sum Sq`   = sumsq,
             `Mean Sq`  = meansq,
@@ -351,7 +450,7 @@ run_anova <- function(x,
         post_hoc <- contrast(emm, method = "pairwise", adjust = "tukey")
         post_hoc_res <- post_hoc |>
             broom::tidy() |>
-            format_emmeans() |>
+            format_emmeans(sample_sizes = sample_sizes) |>
             rename(
                 Term           = term,
                 Df             = df,
@@ -368,7 +467,7 @@ run_anova <- function(x,
         post_hoc <- contrast(emm, method = "trt.vs.ctrl", adjust = "mvt")
         post_hoc_res <- post_hoc |>
             broom::tidy() |>
-            format_emmeans() |>
+            format_emmeans(sample_sizes = sample_sizes) |>
             rename(
                 Term           = term,
                 Df             = df,
@@ -404,6 +503,10 @@ run_kruskal <- function(x,
     comparison <- match.arg(comparison)
     response   <- match.arg(response)
     
+    sample_sizes <- x |>
+      tidyr::drop_na(all_of(response)) |>
+      count(Sample)
+    
     if (comparison == "pairwise") { # not requiret for many vs one dunn test (single-stpe adjustment)
         p_adjust_method   <- match.arg(p_adjust_method)
     }
@@ -421,8 +524,8 @@ run_kruskal <- function(x,
             Df        = parameter,
             `p-value` = p.value
         ) |>
-        mutate(Source = "Sample") |> 
-        select(Source, `Chi-sq`, Df, `p-value`)
+        mutate(Term = "Sample") |> 
+        select(Term, `Chi-sq`, Df, `p-value`)
 
     omnibus_label <- glue(
         "Kruskal-Wallis: χ²({df}) = {chi_sq}, p = {prettyNum(signif(omnibus_pvalue, 2))}",
@@ -449,13 +552,14 @@ run_kruskal <- function(x,
         post_hoc_method <- glue("Dunn's")
     }
 
-    post_hoc_res <- format_pmcmr(post_hoc) |>
+    post_hoc_res <- post_hoc |>
+        format_pmcmr(sample_sizes = sample_sizes) |>
         add_signif(p.col = "p.value", output.col = "Significance") |>
         mutate(Term = "Sample") |>
         rename(
             `z-value` = statistic,
         ) |>
-        select(Term, group1, group2, `z-value`, p.value, Significance)
+        select(Term, group1, group2, n1, n2, `z-value`, p.value, Significance)
     
     
     if (p_adjust_method != "none") {
@@ -513,7 +617,8 @@ run_pairwise_ttest <- function(x,
     )
     
     test_res <- test |>
-        select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
+        mutate(Term = "Sample") |>
+        select(Term, group1, group2, n1, n2, Df = df, `t-value` = statistic,
                `p-value` = p, `Adj. p-value` = p.adj) |>
         add_signif(p.col = "Adj. p-value", output.col = "Significance")
         
@@ -559,7 +664,6 @@ run_ttest <- function(x,
     
     test_formula <- reformulate("Sample", response = response)
     
-    
     test <- rstatix::t_test(
         data = x,
         formula = test_formula,
@@ -567,7 +671,8 @@ run_ttest <- function(x,
     )
     
     test_res <- test |>
-        select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
+        mutate(Term = "Sample") |>
+        select(Term, group1, group2, n1, n2, Df = df, `t-value` = statistic,
                `p-value` = p) |>
         add_signif(p.col = "p-value", output.col = "Significance")
         
@@ -615,7 +720,8 @@ run_pairwise_paired_ttest <- function(x,
     )
     
     test_res <- test |>
-        select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
+        mutate(Term = "Sample") |>
+        select(Term, group1, group2, n1, n2, Df = df, `t-value` = statistic,
                `p-value` = p, `Adj. p-value` = p.adj) |>
         add_signif(p.col = "Adj. p-value", output.col = "Significance")
         
@@ -664,7 +770,8 @@ run_paired_ttest <- function(x,
     )
     
     test_res <- test |>
-        select(Term = ".y.", group1, group2, Df = df, `t-value` = statistic,
+        mutate(Term = "Sample") |>
+        select(Term, group1, group2, n1, n2, Df = df, `t-value` = statistic,
                `p-value` = p) |>
         add_signif(p.col = "p-value", output.col = "Significance")
         
@@ -708,7 +815,8 @@ run_pairwise_wilcoxon <- function(x,
     )
     
     test_res <- test |>
-        select(Term = ".y.", group1, group2, `V-value` = statistic,
+        mutate(Term = "Sample") |>
+        select(Term, group1, group2, n1, n2, `V-value` = statistic,
                `p-value` = p, `Adj. p-value` = p.adj) |>
         add_signif(p.col = "Adj. p-value", output.col = "Significance")
         
@@ -754,7 +862,8 @@ run_wilcoxon <- function(x, response = c("dCq")) {
     )
     
     test_res <- test |>
-        select(Term = ".y.", group1, group2, `V-value` = statistic,
+        mutate(Term = "Sample") |>
+        select(Term, group1, group2, n1, n2, `V-value` = statistic,
                `p-value` = p) |>
         add_signif(p.col = "p-value", output.col = "Significance")
         
@@ -781,6 +890,10 @@ run_pairwise_mann_whitney <- function(x,
     comparison <- match.arg(comparison)
     p_adjust_method   <- match.arg(p_adjust_method)
 
+    sample_sizes <- x |>
+      tidyr::drop_na(all_of(response)) |>
+      count(Sample)
+    
     test_formula <- reformulate("Sample", response = response)
     
     # Identify groups
@@ -799,8 +912,6 @@ run_pairwise_mann_whitney <- function(x,
         other_groups <- groups[-1]
         comparisons_list <- lapply(other_groups, function(g) c(ref_group, g))
     }
-    
-    
 
     # Run tests manually
     test_res <- map(comparisons_list, function(sample_pair) {
@@ -808,7 +919,7 @@ run_pairwise_mann_whitney <- function(x,
         
         wilcox.test(test_formula, data = subset_data) |>
             broom::tidy() |>
-            mutate(Term = response,
+            mutate(Term = "Sample",
                    group1 = sample_pair[[1]],
                    group2 = sample_pair[[2]],
                    method = str_extract(method, "(exact|with continuity correction)") |>
@@ -816,7 +927,10 @@ run_pairwise_mann_whitney <- function(x,
             ) |>
             select(Term, group1, group2, `U-value` = statistic, `p-value` = p.value, Details = method)
     }) |>
-        bind_rows()
+        bind_rows() |>
+        left_join(sample_sizes |> rename("n1" = "n"), by = c("group1" = "Sample")) |>
+        left_join(sample_sizes |> rename("n2" = "n"), by = c("group2" = "Sample")) |>
+        relocate(c("n1", "n2"), .after = "group2")
     
     if (p_adjust_method == "none") {
         # drop the adj column in case of no adjustment
@@ -857,6 +971,10 @@ run_pairwise_mann_whitney <- function(x,
 run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
     
     response   <- match.arg(response)
+    
+    sample_sizes <- x |>
+      tidyr::drop_na(all_of(response)) |>
+      count(Sample)
 
     test_formula <- reformulate("Sample", response = response)
     
@@ -865,13 +983,15 @@ run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
     
     test_res <- test |>
         broom::tidy() |>
-        mutate(Term = response,
+        mutate(Term = "Sample",
                group1 = x$Sample[[1]],
                group2 = x$Sample[[2]],
                ) |>
         add_signif(p.col = "p.value", output.col = "Significance") |>
-        select(Term, group1, group2, `U-value` = statistic, `p-value` = p.value, Significance)
-        
+        select(Term, group1, group2, `U-value` = statistic, `p-value` = p.value, Significance) |>
+        left_join(sample_sizes |> rename("n1" = "n"), by = c("group1" = "Sample")) |>
+        left_join(sample_sizes |> rename("n2" = "n"), by = c("group2" = "Sample")) |>
+        relocate(c("n1", "n2"), .after = "group2")
 
     test_label <- case_match(test$method,
                         "Wilcoxon rank sum test with continuity correction" ~ "Wilcoxon-Mann–Whitney test with continuity correction",
@@ -900,6 +1020,7 @@ run_pairwise_wilcoxon(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_
 run_pairwise_mann_whitney(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
 x_2 <- x |> filter(Sample %in% c("Ctrl", "TrtA"))
 run_ancova_2_sample(x_2, response = "dCq")
+run_mixed_effect_2_sample(x_2, response = "dCq")
 run_paired_ttest(x_2, response = "dCq")
 run_ttest(x_2, response = "ddCq")
 run_wilcoxon(x_2, response = "dCq")
@@ -907,4 +1028,4 @@ run_mann_whitney(x_2, response = "ddCq")
 
 # TODO:
 # protect post-hoc test
-# when only 2 samples available, run it with adjustment = "none"
+# Fix Term, should be Sample... is it really needed?
