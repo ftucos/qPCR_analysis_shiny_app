@@ -251,8 +251,8 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
             legend.position = "bottom",
             panel.grid.minor = element_blank(),
             panel.grid.major.x = element_blank(),
-            axis.text.x = element_text(angle = 45, hjust = 1, size = axis_text_size),
-            axis.text.y = element_text(size = axis_text_size),
+            axis.text   = element_text(size = axis_text_size, color = "black"),
+            axis.text.x = element_text(angle = 45, hjust = 1),
             axis.line = element_line(linewidth = lw, color = "black"),
             axis.ticks = element_line(linewidth = lw, color = "black")
         )

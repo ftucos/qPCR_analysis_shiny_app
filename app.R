@@ -2165,10 +2165,12 @@ server <- function(input, output, session) {
     output$sample_color_inputs <- renderUI({
         samples <- export_samples()
         req(length(samples) > 0)
+
+        # fall back color if accent is not workign
+        color <- if (!is.null(accent_color())) accent_color() else "#027BC3"
         
         # Generate a color palette for samples
-        n_samples <- length(samples)
-        default_colors <- scales::hue_pal()(n_samples)
+        default_colors <- rep(color, length(samples))
         
         tagList(
             lapply(seq_along(samples), function(i) {
@@ -2187,8 +2189,8 @@ server <- function(input, output, session) {
         samples <- export_samples()
         req(length(samples) > 0)
         
-        n <- length(samples)
-        default_colors <- scales::hue_pal()(n)
+        color <- if (!is.null(accent_color())) accent_color() else "#027BC3"
+        default_colors <- rep(color, length(samples))
         
         colors <- sapply(seq_along(samples), function(i) {
             input[[paste0("sample_color_", i)]] %||% default_colors[i]
