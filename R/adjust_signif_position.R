@@ -97,9 +97,8 @@ prepare_signif_data <- function(stats_result, samples, y_max,
     
     # Get the comparison results
     res <- stats_result$test_res |>
-        # remove rows where group1 or group2 are not defined
-        # this happens for test like 2 sample ANCOVA that include also covariate a and residuals stats
-        drop_na(group1, group2)
+        # keep only the Sample comparisons (not intercept or other terms e.g. 2 sample ANCOVA) 
+        filter(Term == "Sample") 
 
     if (is.null(res)) return(NULL)
     
