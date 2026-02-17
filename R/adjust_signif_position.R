@@ -96,7 +96,11 @@ prepare_signif_data <- function(stats_result, samples, y_max,
                                  step = NULL) {
     
     # Get the comparison results
-    res <- stats_result$test_res
+    res <- stats_result$test_res |>
+        # remove rows where group1 or group2 are not defined
+        # this happens for test like 2 sample ANCOVA that include also covariate a and residuals stats
+        drop_na(group1, group2)
+
     if (is.null(res)) return(NULL)
     
     # Ensure we have required columns
