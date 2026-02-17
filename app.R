@@ -59,7 +59,7 @@ ui <- page_fillable(
     # Main navigation
     navset_tab(
         id = "main_tabs",
-        nav_item(h5("qPCR Analysis Tool")),
+        nav_item(h5("qPCR Analysis Tool", class = "ms-2")),
         nav_spacer(),
         # Panel 1: Input Data --------------------------------------------------
         nav_panel(
