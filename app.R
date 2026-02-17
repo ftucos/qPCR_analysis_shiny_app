@@ -282,6 +282,16 @@ ui <- page_fillable(
                                     "ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated vs treated). Paired t-test is better when the reference sample is arbitrary across replicates (e.g. comparing the expression between 2 different tumors or cell lines).",
                                     placement = "right"
                                 )
+                            ),
+                            # Warning for Paired t-test with 2 samples
+                            conditionalPanel(
+                                condition = "input.stats_metric == 'dCq' && output.n_samples == 2 && input.stats_test == 'paired_ttest'",
+                                tooltip(
+                                    bs_icon("lightbulb"),
+                                    "In standard conditions, the paired t-test yields identical results to the mixed-effect model (random intercept).
+                                    Differences arise only in presence of missing data points (paired t-test uses only complete observations).",
+                                    placement = "right"
+                                )
                             )
                         ),
                         
