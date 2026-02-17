@@ -191,12 +191,14 @@ ui <- page_fillable(
                         ),
                         conditionalPanel(
                             condition = "input.summarize_bio_reps == 'split' && input.stat_type != 'none'",
-                            tooltip(
-                                bs_icon("exclamation-triangle"),
-                                "For technical replicates error bars are shown as QC only.
-                                They should not be used for statistical testing or to infer biological variability but rather to decide if keep or repeat the assay.
-                                For technical replicates, the preferred display is 'None' (individual points only) to avoid confusion with biological variability.
-                                If you want to add an error bar, SD is a more common choice because it reflects the variability of the assay; SEM reflects precision of the mean estimation (SD/√n) and shrinks with n.",
+                            div(class = "ms-2",
+                                tooltip(
+                                    bs_icon("exclamation-triangle"),
+                                    "For technical replicates error bars are shown as QC only.
+                                    They should not be used for statistical testing or to infer biological variability but rather to decide if keep or repeat the assay.
+                                    For technical replicates, the preferred display is 'None' (individual points only) to avoid confusion with biological variability.
+                                    If you want to add an error bar, SD is a more common choice because it reflects the variability of the assay; SEM reflects precision of the mean estimation (SD/√n) and shrinks with n.",
+                                )
                             )
                         )
                     ),
@@ -212,11 +214,13 @@ ui <- page_fillable(
                                 status  = "primary",
                                 value   = TRUE
                             ),
-                            tooltip(
-                                bs_icon("info-circle"),
-                                "Default: variance is computed from Target + HK technical replicates (HK pooled and propagated into ΔCq). For ΔΔCq, control variance is propagated to all samples (not ignored).
-                                This is more faithful to the measurement process.
-                                Stats without propagation of variance are offered for reproducibility with common practice. Note that this is not the correct approach though",
+                            div(class = "ms-2",
+                                tooltip(
+                                    bs_icon("info-circle"),
+                                    "Default: variance is computed from Target + HK technical replicates (HK pooled and propagated into ΔCq). For ΔΔCq, control variance is propagated to all samples (not ignored).
+                                    This is more faithful to the measurement process.
+                                    Stats without propagation of variance are offered for reproducibility with common practice. Note that this is not the correct approach though",
+                                )
                             )
                         ),
                     ),
@@ -266,31 +270,37 @@ ui <- page_fillable(
                             # Tip about test recomendations (shown for dCq with > 2 samples)
                             conditionalPanel(
                                 condition = "input.stats_metric == 'dCq' && output.n_samples > 2",
-                                tooltip(
-                                    bs_icon("lightbulb"),
-                                    "ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated sample).
-                                    Mixed-effect Model is better when the reference sample is arbitrary across replicates (e.g., comparing expression between different patients or cell lines).
-                                    Other tests are available for completeness but are generally not recommended.",
-                                    placement = "right"
+                                div(class = "ms-2",
+                                    tooltip(
+                                        bs_icon("lightbulb"),
+                                        "ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated sample).
+                                        Mixed-effect Model is better when the reference sample is arbitrary across replicates (e.g., comparing expression between different patients or cell lines).
+                                        Other tests are available for completeness but are generally not recommended.",
+                                        placement = "right"
+                                    )
                                 )
                             ),
                             # Tip about test recomendations (shown for dCq with exactly 2 samples)
                             conditionalPanel(
                                 condition = "input.stats_metric == 'dCq' && output.n_samples == 2",
-                                tooltip(
-                                    bs_icon("lightbulb"),
-                                    "ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated vs treated). Paired t-test is better when the reference sample is arbitrary across replicates (e.g. comparing the expression between 2 different tumors or cell lines).",
-                                    placement = "right"
+                                div(class = "ms-2",
+                                    tooltip(
+                                        bs_icon("lightbulb"),
+                                        "ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated vs treated). Paired t-test is better when the reference sample is arbitrary across replicates (e.g. comparing the expression between 2 different tumors or cell lines).",
+                                        placement = "right"
+                                    )
                                 )
                             ),
                             # Warning for Paired t-test with 2 samples
                             conditionalPanel(
                                 condition = "input.stats_metric == 'dCq' && output.n_samples == 2 && input.stats_test == 'paired_ttest'",
-                                tooltip(
-                                    bs_icon("lightbulb"),
-                                    "In standard conditions, the paired t-test yields identical results to the mixed-effect model (random intercept).
-                                    Differences arise only in presence of missing data points (paired t-test uses only complete observations).",
-                                    placement = "right"
+                                div(class = "ms-2",
+                                    tooltip(
+                                        bs_icon("lightbulb"),
+                                        "In standard conditions, the paired t-test yields identical results to the mixed-effect model (random intercept).
+                                        Differences arise only in presence of missing data points (paired t-test uses only complete observations).",
+                                        placement = "right"
+                                    )
                                 )
                             )
                         ),
