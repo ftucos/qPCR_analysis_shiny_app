@@ -258,17 +258,7 @@ ui <- page_fillable(
                             pickerInput(
                                 inputId   = "stats_test",
                                 label     = "Test:",
-                                choices   = list(
-                                    "Parametric" = c(
-                                        "ANCOVA" = "ancova",
-                                        "Mixed Effect Model" = "mixed_effect",
-                                        "Pairwise paired t-test" = "pairwise_paired_ttest"
-                                    ),
-                                    "Non-parametric" = c( # "Friedman" = "friedman",
-                                        "Pairwise Wilcoxon" = "pairwise_wilcoxon"
-                                    )
-                                ), # update dinamically
-                                selected = "ancova",
+                                choices   = NULL, # update dinamically
                                 width = "93%",
                                 options = pickerOptions(container = "body")
                             ),
@@ -400,7 +390,7 @@ ui <- page_fillable(
                         conditionalPanel(
                             condition = "output.stats_dropped_count > 0",
                             div(
-                                class = "alert alert-warning py-2 px-3 mb-3",
+                                class = "alert alert-warning py-2 px-3 mb-3 d-flex align-items-center",
                                 style = "font-size: 0.85em;",
                                 bs_icon("exclamation-triangle"),
                                 uiOutput("stats_dropped_warning")
@@ -420,22 +410,46 @@ ui <- page_fillable(
                                 accordion_panel(
                                     title = div(
                                         class = "d-flex justify-content-between align-items-center",
-                                        span(class = "mx-3", style = "font-size: 14px;", textOutput("stats_omnibus_label", inline = TRUE)),
-                                        uiOutput("stats_omnibus_badge")
+                                        span(class = "mx-3", style = "font-size: 16px;", textOutput("stats_omnibus_label", inline = TRUE)),
+                                        uiOutput("stats_omnibus_badge"),
                                     ),
                                     value = "omnibus_panel",
                                     icon = NULL,
-                                    DT::dataTableOutput("stats_omnibus_table")
+                                    DT::dataTableOutput("stats_omnibus_table"),
+                                    conditionalPanel(
+                                        condition = "output.stats_has_extra && output.stats_extra_in_omnibus",
+                                        hr(),
+                                        tags$h6(
+                                            textOutput("stats_extra_title_omnibus"),
+                                        ),
+                                        tags$div(
+                                            style = "max-width:450px; width:100%;",
+                                            DT::dataTableOutput("stats_extra_table_omnibus", )
+                                        )
+                                    )
                                 )
                             )
                         ),
-                        # Post-hoc or Pairwise results section
+                        
+                        # Post-hoc or Pairwise comparison results section
                         div(
                             tags$h6(
                                 class = "mb-2",
                                 textOutput("stats_comparison_title", inline = TRUE)
                             ),
-                            DT::dataTableOutput("stats_results_table")
+                            DT::dataTableOutput("stats_results_table"),
+                            conditionalPanel(
+                                condition = "output.stats_has_extra && !output.stats_extra_in_omnibus",
+                                hr(),
+                                tags$h6(
+                                    textOutput("stats_extra_title_comparison"),
+                                ),
+                                tags$div(
+                                    style = "max-width:450px; width:100%;",
+                                    DT::dataTableOutput("stats_extra_table_comparison")
+                                )
+                            )
+
                         ),
                         # Method description
                         div(
@@ -1461,6 +1475,15 @@ server <- function(input, output, session) {
                             show_multiple_comparison_adjust = FALSE,
                             show_post_hoc_test              = TRUE
                         ),
+
+
+                        # --- ANCOVA 2 Sample ---
+                        "mixed_effect_2_sample" = list(
+                            show_unequal_variance_toggle    = TRUE,
+                            show_multiple_comparison_type   = FALSE,
+                            show_multiple_comparison_adjust = FALSE,
+                            show_post_hoc_test              = FALSE
+                        ),
                         
                         # --- ANOVA ---
                         "anova" = list(
@@ -1622,6 +1645,7 @@ server <- function(input, output, session) {
             if (metric == "dCq") {
                 choices[["Parametric"]] <- c(
                         "ANCOVA" = "ancova_2_sample",
+                        "Mixed Effect Model" = "mixed_effect_2_sample",
                         "Paired t-test" = "paired_ttest"
                     )
                 default <- "ancova_2_sample"
@@ -1735,7 +1759,7 @@ server <- function(input, output, session) {
             print(table(is.finite(data[[response]])))
             
         } else if (test %in% c("ancova", "ancova_2_sample")) {
-            # ANCOVA: drop entire replicate run only if the covariate (ref_dCq) is Inf
+            # ANCOVA: drop entire replicate run if the covariate (ref_dCq) is Inf
             reps_with_inf_covariate <- data |>
                 filter(!is.finite(ref_dCq)) |>
                 pull(Replicate) |>
@@ -1796,6 +1820,7 @@ server <- function(input, output, session) {
                              "ancova" = run_ancova(data, response = response, comparison = comparison),
                              "ancova_2_sample" = run_ancova_2_sample(data, response = response),
                              "mixed_effect" = run_mixed_effect(data, response = response, comparison = comparison, equal.var = equal_var),
+                             "mixed_effect_2_sample" = run_mixed_effect_2_sample(data, response = response, equal.var = equal_var),    
                              "anova" = run_anova(data, response = response,comparison = comparison),
                              "kruskal" = run_kruskal(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
                              "pairwise_ttest" = run_pairwise_ttest(data, response = response, comparison = comparison, equal.var = equal_var, p_adjust_method = p_adjust),
@@ -1926,13 +1951,69 @@ server <- function(input, output, session) {
                 class = "compact stripe"
             ) |>
             DT::formatSignif(
-                columns = intersect(
-                    names(stats_result()$omnibus_res),
-                    c("Sum Sq", "Mean Sq", "Df", "Numerator Df", "Denominator Df", "F-value", "Chi-sq", "p-value")
-                ),
+                columns = select(stats_result()$omnibus_res, where(is.numeric)) %>% names(),
                 digits = 2
+            ) 
+    })
+    
+    
+    # Output: Flag for additional test panel (for conditional UI) ------------------
+    output$stats_has_extra <- reactive({
+        req(stats_result())
+        print("Has extra?:")
+        print(!is.null(stats_result()$extra_res))
+        !is.null(stats_result()$extra_res)
+    })
+    outputOptions(output, "stats_has_extra", suspendWhenHidden = FALSE)
+    
+    output$stats_extra_in_omnibus <- reactive({
+        req(stats_result())
+        print("Extra position:")
+        print(stats_result()$extra_position)
+        print(stats_result()$extra_position == "omnibus")
+        stats_result()$extra_position == "omnibus"
+    })
+    outputOptions(output, "stats_extra_in_omnibus", suspendWhenHidden = FALSE)
+    
+    # Output: Optional additional res panel ---------------------------------------------
+    
+    stats_extra_title_render <- renderText({
+        req(stats_result())
+        req(stats_result()$extra_label)
+        
+        stats_result()$extra_label
+    })
+    
+    output$stats_extra_title_omnibus    <- stats_extra_title_render
+    output$stats_extra_title_comparison <- stats_extra_title_render
+
+    stats_extra_table_render <- DT::renderDataTable({
+        req(stats_result())
+        req(stats_result()$extra_res)
+        
+        stats_result()$extra_res |>
+            DT::datatable(
+                # remove additional elements such as paging, search etc.
+                options = list(
+                    layout = list(
+                        topStart = NULL,
+                        topEnd = NULL,
+                        bottomStart = NULL,
+                        bottomEnd = NULL
+                    ),
+                    paging = FALSE,
+                    searching = FALSE,
+                    ordering = FALSE,
+                    info = FALSE
+                ),
+                rownames = FALSE,
+                selection = "none",
+                class = "compact stripe"
             )
     })
+    
+    output$stats_extra_table_omnibus    <- stats_extra_table_render
+    output$stats_extra_table_comparison <- stats_extra_table_render
     
     # Output: Comparison section title -----------------------------------------
     
@@ -1977,10 +2058,19 @@ server <- function(input, output, session) {
                 selection = "none",
                 class = "compact stripe"
             ) |>
-            DT::formatRound(
-                columns = numeric_cols,
-                digits = 4
+            DT::formatSignif(
+                columns = setdiff(
+                    select(results_df, where(is.numeric)) %>% names(),
+                    c("n1", "n2")
+                    ),
+                digits = 2
             ) |>
+            DT::formatRound(
+                columns = intersect(
+                    select(results_df, where(is.numeric)) %>% names(),
+                    c("n1", "n2")
+                ),
+                digits = 0) |>
             DT::formatStyle(
                 columns = "Significance",
                 color = DT::styleEqual(
@@ -2447,6 +2537,15 @@ server <- function(input, output, session) {
                         row <- row + nrow(stats_result()$omnibus_res) + 2
                     }
                     
+                    # Extra results (if placed after Omnibus)
+                    if (!is.null(stats_result()$extra_res) && isTRUE(stats_result()$extra_position == "omnibus")) {
+                         extra_header <- stats_result()$extra_label %||% "Additional Results"
+                         writeData(wb, sheet_name, data.frame(x = extra_header), startRow = row, colNames = FALSE)
+                         row <- row + 1
+                         writeData(wb, sheet_name, stats_result()$extra_res, startRow = row)
+                         row <- row + nrow(stats_result()$extra_res) + 2
+                    }
+
                     # Test results
                     if (!is.null(stats_result()$test_res)) {
                         comp_header <- if (!is.null(stats_result()$omnibus_res)) {
@@ -2458,6 +2557,15 @@ server <- function(input, output, session) {
                         row <- row + 1
                         writeData(wb, sheet_name, stats_result()$test_res, startRow = row)
                         row <- row + nrow(stats_result()$test_res) + 2
+                    }
+                    
+                    # Extra results (if placed after Comparisons - Default)
+                    if (!is.null(stats_result()$extra_res) && !isTRUE(stats_result()$extra_position == "omnibus")) {
+                         extra_header <- stats_result()$extra_label %||% "Additional Results"
+                         writeData(wb, sheet_name, data.frame(x = extra_header), startRow = row, colNames = FALSE)
+                         row <- row + 1
+                         writeData(wb, sheet_name, stats_result()$extra_res, startRow = row)
+                         row <- row + nrow(stats_result()$extra_res) + 2
                     }
                     
                     # Method

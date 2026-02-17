@@ -236,6 +236,14 @@ run_mixed_effect <- function(x,
             numDf       = round(omnibus_res$`Numerator Df`[1], 1),
             denDf       = round(omnibus_res$`Denominator Df`[1], 1)
         )
+        
+        rand_effect_res <- as.data.frame(VarCorr(omnibus)) |>
+          mutate(grp = str_replace(grp, "Replicate", "Replicate (Intercept)"),
+                 vcov  = signif(vcov, 3),
+                 sdcor = signif(sdcor, 3)) |>
+          # rename to SD and variance given is a random intercept only
+          select(Term = grp, Variance = vcov, `St. Dev.` = sdcor) |>
+          as_tibble()
 
         # Post-hoc via emmeans
         emm <- emmeans(omnibus, ~Sample)
@@ -278,6 +286,16 @@ run_mixed_effect <- function(x,
             numDf    = round(omnibus_res$`Numerator Df`[omnibus_res$Term == "Sample"], 2),
             denDf    = round(omnibus_res$`Denominator Df`[omnibus_res$Term == "Sample"], 2)
         )
+        
+        rand_effect_res <- VarCorr(omnibus)[1:2, 1:2] |> 
+          as.data.frame() |>
+          rownames_to_column("Term") |>
+          mutate(Term = str_replace(Term, "\\(Intercept\\)", "Replicate (Intercept)"),
+                 Variance  = signif(as.numeric(Variance), 3),
+                 StdDev = signif(as.numeric(StdDev), 3)) |>
+          # rename to SD and variance given is a random intercept only
+          select(Term, Variance, `St. Dev.` = StdDev) |>
+          as_tibble()
 
         # Post-hoc via emmeans with Satterthwaite df
         emm <- emmeans(omnibus, ~Sample)
@@ -325,6 +343,9 @@ run_mixed_effect <- function(x,
         test_label      = post_hoc_method,
         method          = method,
         omnibus_res     = omnibus_res,
+        extra_res       = rand_effect_res,
+        extra_label     = "Random Effect:",
+        extra_position  = "omnibus",
         omnibus_label   = omnibus_label,
         omnibus_pvalue  = omnibus_pvalue
     )
@@ -365,6 +386,13 @@ run_mixed_effect_2_sample <- function(x,
         `p-value`        = p.value
       ) 
     
+    rand_effect_res <- as.data.frame(VarCorr(test)) |>
+      mutate(grp = str_replace(grp, "Replicate", "Replicate (Intercept)"),
+             vcov  = signif(vcov, 3),
+             sdcor = signif(sdcor, 3)) |>
+      # rename to SD and variance given is a random intercept only
+      select(Term = grp, Variance = vcov, `St. Dev.` = sdcor) |>
+      as_tibble()
     
   } else {
     # Unequal variance: use nlme::lme with varIdent
@@ -386,6 +414,16 @@ run_mixed_effect_2_sample <- function(x,
         `Numerator Df`   = numDF,
         `Denominator Df` = denDF
       )
+    
+    rand_effect_res <- VarCorr(test)[1:2, 1:2] |> 
+      as.data.frame() |>
+      rownames_to_column("Term") |>
+      mutate(Term = str_replace(Term, "\\(Intercept\\)", "Replicate (Intercept)"),
+             Variance  = signif(as.numeric(Variance), 3),
+             StdDev = signif(as.numeric(StdDev), 3)) |>
+      # rename to SD and variance given is a random intercept only
+      select(Term, Variance, `St. Dev.` = StdDev) |>
+      as_tibble()
   }
   
   # add groups and number of
@@ -400,9 +438,12 @@ run_mixed_effect_2_sample <- function(x,
   method <- glue("Two-sided {test_label} on {format_response(response)} with Replicate as random effect intercept.")
   
   list(
-    test_res   = test_res,
-    test_label = test_label,
-    method     = method
+    test_res        = test_res,
+    extra_res       = rand_effect_res,
+    extra_label     = "Random Effect:",
+    extra_position  = "comparisons",
+    test_label      = test_label,
+    method          = method
   )
 }
 
@@ -1028,4 +1069,3 @@ run_mann_whitney(x_2, response = "ddCq")
 
 # TODO:
 # protect post-hoc test
-# Fix Term, should be Sample... is it really needed?
