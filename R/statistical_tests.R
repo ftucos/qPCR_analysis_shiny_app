@@ -304,7 +304,7 @@ run_mixed_effect <- function(x,
         if (comparison == "pairwise") {
             post_hoc        <- contrast(emm, method = "pairwise", adjust = "mvt")
             post_hoc_method <- "Dunnett T3"  # T3 accounts for unequal variances
-            # TODO: this is wrong
+            # TODO: double check this
         } else {
             post_hoc        <- contrast(emm, method = "trt.vs.ctrl", adjust = "mvt")
             post_hoc_method <- "Dunnett adjusted for unequal variances"  # is there a better name?
@@ -1049,23 +1049,23 @@ run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
 
 
 # test the functions ---------
-x <- read_csv("data/simulated_qPCR_data.csv") |>
-    mutate(Sample = factor(Sample))
-run_ancova(x, comparison = "pairwise")
-run_mixed_effect(x, comparison = "trt.vs.ctrl", equal.var = T)
-run_anova(x, comparison = "pairwise", response = "ddCq")
-run_kruskal(x, comparison = "pairwise", response = "exp_ddCq", p_adjust_method = "holm")
-run_repeated_paired_ttest(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_method = "BH")
-run_repeated_ttest(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
-run_repeated_wilcoxon(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_method = "BH")
-run_repeated_mann_whitney(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
-x_2 <- x |> filter(Sample %in% c("Ctrl", "TrtA"))
-run_ancova_2_sample(x_2, response = "dCq")
-run_mixed_effect_2_sample(x_2, response = "dCq")
-run_paired_ttest(x_2, response = "dCq")
-run_ttest(x_2, response = "ddCq")
-run_wilcoxon(x_2, response = "dCq")
-run_mann_whitney(x_2, response = "ddCq")
+# x <- read_csv("data/simulated_qPCR_data.csv") |>
+#     mutate(Sample = factor(Sample))
+# run_ancova(x, comparison = "pairwise")
+# run_mixed_effect(x, comparison = "trt.vs.ctrl", equal.var = T)
+# run_anova(x, comparison = "pairwise", response = "ddCq")
+# run_kruskal(x, comparison = "pairwise", response = "exp_ddCq", p_adjust_method = "holm")
+# run_repeated_paired_ttest(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_method = "BH")
+# run_repeated_ttest(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
+# run_repeated_wilcoxon(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_method = "BH")
+# run_repeated_mann_whitney(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
+# x_2 <- x |> filter(Sample %in% c("Ctrl", "TrtA"))
+# run_ancova_2_sample(x_2, response = "dCq")
+# run_mixed_effect_2_sample(x_2, response = "dCq")
+# run_paired_ttest(x_2, response = "dCq")
+# run_ttest(x_2, response = "ddCq")
+# run_wilcoxon(x_2, response = "dCq")
+# run_mann_whitney(x_2, response = "ddCq")
 
 # TODO:
 # protect post-hoc test
