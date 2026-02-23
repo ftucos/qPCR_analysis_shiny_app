@@ -7,7 +7,7 @@ get_Cq_y_limits <- function(x, min_range = 3, margin = c(0, 0), undetected_value
     
     # return fixed range if all values are undetected
     if (all(!is.finite(x))) {
-        return(c(34, 40))
+        return(c(undetected_value - 6, undetected_value))
     }
 
     # remove infinite values
@@ -16,7 +16,7 @@ get_Cq_y_limits <- function(x, min_range = 3, margin = c(0, 0), undetected_value
     y_min <- floor(min(x))
     y_max <- ceiling(max(x))
     
-    # if undetected valeus are present, expand the scale up to 40
+    # if undetected values are present, expand the scale up to undetected_value
     if(undetected_present) {
         y_max <- max(ceiling(y_max), undetected_value)
     }
@@ -34,7 +34,7 @@ get_Cq_y_limits <- function(x, min_range = 3, margin = c(0, 0), undetected_value
 
 
 # for (d)dCq and exp_(d)dCq plots ---------------------------------------------------
-get_y_limits <- function(values, metric = c("dCq")) {
+get_y_limits <- function(values, metric = c("dCq"), undetected_value = 40) {
     
     # drop NA
     values <- values[!is.na(values)]
@@ -45,8 +45,8 @@ get_y_limits <- function(values, metric = c("dCq")) {
         
         if(all(!is.finite(values))) {
             # all undetected
-            y_min <- -40
-            y_max <- -34
+            y_min <- -undetected_value
+            y_max <- -(undetected_value - 6)
             
         } else if (any(!is.finite(values))) {
             # some undetected

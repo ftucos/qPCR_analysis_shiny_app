@@ -15,6 +15,7 @@ build_results_plot <- function(plot_data, accent_color, secondary_color) {
     error_bar_low     <- plot_data$error_bar_low
     y_limits          <- plot_data$y_limits
     y_min_label       <- plot_data$y_min_label
+    undetected_present <- plot_data$undetected_present
     error_bar_label   <- plot_data$error_bar_label
     out_metric        <- plot_data$out_metric
     stat_type         <- plot_data$stat_type
@@ -113,8 +114,9 @@ build_results_plot <- function(plot_data, accent_color, secondary_color) {
         labs(x = "Sample", y = y_label, title = NULL) +
         scale_y_continuous(
             expand = expansion(mult = 0.05, add = 0),
-            labels = function(x) ifelse(x == y_limits[1], y_min_label, x),
-            oob = function(x, range) squish_infinite_to_val(x, range, to_value = abs(y_limits[1]))
+            breaks = if (undetected_present) function(x) union(labeling::extended(x[1], x[2], 5), y_limits[1]) else waiver(),
+            labels = if (undetected_present) function(x) ifelse(x == y_limits[1], y_min_label, x) else waiver(),
+            oob = if (undetected_present) function(x, range) squish_infinite_to_val(x, range, to_value = abs(y_limits[1])) else scales::oob_keep
         ) +
         coord_cartesian(ylim = y_limits) +
         theme_minimal(base_size = 14) +
@@ -166,6 +168,7 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
     error_bar_low     <- plot_data$error_bar_low
     y_limits          <- plot_data$y_limits
     y_min_label       <- plot_data$y_min_label
+    undetected_present <- plot_data$undetected_present
     out_metric        <- plot_data$out_metric
     stat_type         <- plot_data$stat_type
     summarize_bio_reps <- plot_data$summarize_bio_reps
@@ -242,8 +245,9 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
         labs(x = NULL, y = y_label, title = plot_title, subtitle = plot_subtitle) +
         scale_y_continuous(
             expand = if (out_metric %in% c("exp_dCq", "exp_ddCq")) expansion(mult = c(0, 0.05), add = 0) else expansion(mult = 0.05, add = 0),
-            labels = function(x) ifelse(x == y_limits[1], y_min_label, x),
-            oob = function(x, range) squish_infinite_to_val(x, range, to_value = abs(y_limits[1]))
+            breaks = if (undetected_present) function(x) union(labeling::extended(x[1], x[2], 5), y_limits[1]) else waiver(),
+            labels = if (undetected_present) function(x) ifelse(x == y_limits[1], y_min_label, x) else waiver(),
+            oob = if (undetected_present) function(x, range) squish_infinite_to_val(x, range, to_value = abs(y_limits[1])) else scales::oob_keep
         ) +
         coord_cartesian(ylim = y_limits, clip = "off") +
         theme_minimal(base_size = axis_text_size) +

@@ -869,6 +869,15 @@ server <- function(input, output, session) {
                 Undetected = !is.finite(Cq)
             )
     })
+    # Derived Reactive: Dynamic Cq max for undetected visualization ------------
+    # Rounds up to the nearest 5, minimum 40 (e.g. 40, 45, 50, 55…)
+    
+    cq_undetected_value <- reactive({
+        req(cq_data())
+        finite_cqs <- cq_data()$Cq[is.finite(cq_data()$Cq)]
+        if (length(finite_cqs) == 0) return(40)
+        max(40, ceiling(max(finite_cqs) / 5) * 5)
+    })
     # Observer: Update target selector choices ---------------------------------
     
     observe({
@@ -935,7 +944,8 @@ server <- function(input, output, session) {
             )
         
         # force a minumum of y-axis range of 3 units
-        y_limits <- get_Cq_y_limits(df_target$Cq, min_range = 3)
+        uv <- cq_undetected_value()
+        y_limits <- get_Cq_y_limits(df_target$Cq, min_range = 3, undetected_value = uv)
         
         # Pre-compute hover text
         has_replicate <- "Replicate" %in% names(df_target)
@@ -983,7 +993,7 @@ server <- function(input, output, session) {
                 key = Key
             )
         ) +
-            annotate("rect", xmin = 0.5, xmax = n_samples + 0.5, ymin = 35, ymax = 40, alpha = 0.6, fill = "#EBEBEB") +
+            annotate("rect", xmin = 0.5, xmax = n_samples + 0.5, ymin = uv - 5, ymax = uv, alpha = 0.6, fill = "#EBEBEB") +
             geom_beeswarm(method = "compactswarm", preserve.data.axis = TRUE) +
             geom_point(
                 data = df_summary_target,
@@ -1018,9 +1028,9 @@ server <- function(input, output, session) {
             coord_cartesian(ylim = y_limits) +
             scale_y_continuous(
                 expand = expansion(mult = 0.05, add = 0),
-                labels = function(x) ifelse(x == 40, "≥40", x), # label 40+ for undetected
+                labels = function(x) ifelse(x == uv, paste0("≥", uv), x), # label for undetected
                 # add extra distance to squish to separate from other points
-                oob = squish_infinite_to_val
+                oob = function(x, range) squish_infinite_to_val(x, range, to_value = uv)
             ) +
             scale_x_discrete(expand = 0) +
             theme_minimal(base_size = 14) +
@@ -2223,7 +2233,7 @@ server <- function(input, output, session) {
                 ))
         }
         
-        y_limits <- get_y_limits(values, metric = input$out_metric)
+        y_limits <- get_y_limits(values, metric = input$out_metric, undetected_value = cq_undetected_value())
         
         undetected_present <- any(!is.finite(values[!is.na(values)]))
         y_min_label <- if (input$out_metric == "dCq" & undetected_present) {
@@ -2247,6 +2257,7 @@ server <- function(input, output, session) {
             error_bar_low      = error_bar_low,
             y_limits           = y_limits,
             y_min_label        = y_min_label,
+            undetected_present = undetected_present,
             error_bar_label    = error_bar_label,
             out_metric         = input$out_metric,
             stat_type          = input$stat_type,
