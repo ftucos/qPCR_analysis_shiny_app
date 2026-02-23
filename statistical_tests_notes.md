@@ -13,7 +13,7 @@ Overview of all supported statistical tests in the Shiny qPCR app for the differ
 dCq tests operate on **non-independent (paired) data** (different samples' data points are linked by the biological replicate), and all the statistical tests try to correct for that in different ways.
 
 - The **ANCOVA** uses the **reference sample's dCq** as a covariate to adjust for variability between the different runs.
-- **Mixed Effect Models (MEM)** and **paired t-tests** correct for the average dCq value for each run. MEMs first correct for the average of each run and then performs pairwise comparisons on estimated marginal means. Repeated paired t-tests instead correct for the average dCq of each pair of comparison. A secondary difference is that pairwise paired t-tests only use complete observations while MEMs can handle missing values. 
+- **Mixed Effect Models (MEM)** and **paired t-tests** correct for the average dCq value for each run. MEMs first correct for the average of each run and then performs pairwise comparisons on estimated marginal means. Repeated paired t-tests instead correct for the average dCq of each pair of comparison. A secondary difference is that repeated paired t-tests only use complete observations while MEMs can handle missing values. 
 
 ### ≥ 3 samples (parametric)
 
@@ -112,7 +112,7 @@ Different tests handle undetected Cq values (which propagate as `Inf` in dCq and
 
 - **ANCOVA** is recommended when you have a clear reference/control sample (e.g. an untreated condition). It adjusts for inter-replicate variability across runs via the reference sample's dCq covariate.
 - **Mixed Effect Model** is better suited when the reference sample is arbitrary across replicates (e.g. comparing expression between different patients or cell lines). It models replicate-level variance as a random intercept, making it more appropriate for designs without a fixed control.
-- Other tests (pairwise paired t-tests, etc.) are available for completeness but are generally not the first choice.
+- Other tests (repeated paired t-tests, etc.) are available for completeness but are generally not the first choice.
 
 ### When to test on 2⁻ΔΔCq
 

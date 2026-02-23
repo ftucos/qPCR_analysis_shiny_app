@@ -629,7 +629,7 @@ run_kruskal <- function(x,
 # Pairwise t-test --------------------------------------------------------------
 # For ddCq or exp_ddCq (independent samples, no omnibus)
 
-run_pairwise_ttest <- function(x,
+run_repeated_ttest <- function(x,
                                response   = c("ddCq", "exp_ddCq"),
                                comparison = c("pairwise", "trt.vs.ctrl"),
                                equal.var  = TRUE,
@@ -735,7 +735,7 @@ run_ttest <- function(x,
 # Pairwise paired t-test -------------------------------------------------------
 # For dCq with biological replicates (paired by Replicate)
 
-run_pairwise_paired_ttest <- function(x,
+run_repeated_paired_ttest <- function(x,
                                       response = c("dCq"),
                                       comparison = c("pairwise", "trt.vs.ctrl"),
                                       p_adjust_method = c("BH", "holm", "none")) {
@@ -830,7 +830,7 @@ run_paired_ttest <- function(x,
 
 # Pairwise Wilcoxon signed-rank test -------------------------------------------
 # Non-parametric paired test for dCq with replicates
-run_pairwise_wilcoxon <- function(x,
+run_repeated_wilcoxon <- function(x,
                                       response = c("dCq"),
                                       comparison = c("pairwise", "trt.vs.ctrl"),
                                       p_adjust_method = c("BH", "holm", "none")) {
@@ -922,7 +922,7 @@ run_wilcoxon <- function(x, response = c("dCq")) {
 # Pairwise Mann-Whitney U test -------------------------------------------------
 # Non-parametric unpaired test for ddCq
 
-run_pairwise_mann_whitney <- function(x,
+run_repeated_mann_whitney <- function(x,
                                       response = c("ddCq", "exp_ddCq"),
                                       comparison = c("pairwise", "trt.vs.ctrl"),
                                       p_adjust_method = c("BH", "holm", "none")) {
@@ -1055,10 +1055,10 @@ run_ancova(x, comparison = "pairwise")
 run_mixed_effect(x, comparison = "trt.vs.ctrl", equal.var = T)
 run_anova(x, comparison = "pairwise", response = "ddCq")
 run_kruskal(x, comparison = "pairwise", response = "exp_ddCq", p_adjust_method = "holm")
-run_pairwise_paired_ttest(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_method = "BH")
-run_pairwise_ttest(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
-run_pairwise_wilcoxon(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_method = "BH")
-run_pairwise_mann_whitney(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
+run_repeated_paired_ttest(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_method = "BH")
+run_repeated_ttest(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
+run_repeated_wilcoxon(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_method = "BH")
+run_repeated_mann_whitney(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
 x_2 <- x |> filter(Sample %in% c("Ctrl", "TrtA"))
 run_ancova_2_sample(x_2, response = "dCq")
 run_mixed_effect_2_sample(x_2, response = "dCq")

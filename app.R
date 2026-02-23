@@ -319,7 +319,7 @@ ui <- page_fillable(
                                 ),
                                 # Tip shown only for pairwise t-test
                                 conditionalPanel(
-                                    condition = "input.stats_test == 'pairwise_ttest'",
+                                    condition = "input.stats_test == 'repeated_ttest'",
                                     tooltip(
                                         bs_icon("info-circle"),
                                         "When enabled (Welch's t-test), 
@@ -1532,7 +1532,7 @@ server <- function(input, output, session) {
                         ),
                         
                         # --- Pairwise t-test ---
-                        "pairwise_ttest" = list(
+                        "repeated_ttest" = list(
                             show_unequal_variance_toggle    = TRUE,
                             show_multiple_comparison_type   = TRUE,
                             show_multiple_comparison_adjust = TRUE,
@@ -1548,7 +1548,7 @@ server <- function(input, output, session) {
                         ),
                         
                         # --- Pairwise paired t-test ---
-                        "pairwise_paired_ttest" = list(
+                        "repeated_paired_ttest" = list(
                             show_unequal_variance_toggle    = FALSE,
                             show_multiple_comparison_type   = TRUE,
                             show_multiple_comparison_adjust = TRUE,
@@ -1564,7 +1564,7 @@ server <- function(input, output, session) {
                         ),
                         
                         # --- Pairwise Wilcoxon (signed-rank) ---
-                        "pairwise_wilcoxon" = list(
+                        "repeated_wilcoxon" = list(
                             show_unequal_variance_toggle    = FALSE,
                             show_multiple_comparison_type   = TRUE,
                             show_multiple_comparison_adjust = TRUE,
@@ -1580,7 +1580,7 @@ server <- function(input, output, session) {
                         ),
                         
                         # --- Pairwise Wilcoxon-Mann-Whitney ---
-                        "pairwise_mann_whitney" = list(
+                        "repeated_mann_whitney" = list(
                             show_unequal_variance_toggle    = FALSE,
                             show_multiple_comparison_type   = TRUE,
                             show_multiple_comparison_adjust = TRUE,
@@ -1659,14 +1659,14 @@ server <- function(input, output, session) {
                 choices[["Parametric"]] <- c(
                         "ANCOVA" = "ancova",
                         "Mixed Effect Model" = "mixed_effect",
-                        "Pairwise paired t-test" = "pairwise_paired_ttest"
+                        "Repeated paired t-test" = "repeated_paired_ttest"
                     )
                 default <- "ancova"
             } else {
                 # ddCq or exp_ddCq: standard group comparisons
                 choices[["Parametric"]] <- c(
                         "ANOVA" = "anova",
-                        "Pairwise t-test" = "pairwise_ttest"
+                        "Repeated t-test" = "repeated_ttest"
                     )
                 default <- "anova"
             }
@@ -1690,11 +1690,11 @@ server <- function(input, output, session) {
         if (include_nonparam) {
             if (n_samples > 2) {
                 if (metric == "dCq") {
-                    choices[["Non-parametric"]] <- c("Pairwise Wilcoxon signed-rank (paired)" = "pairwise_wilcoxon")
+                    choices[["Non-parametric"]] <- c("Repeated Wilcoxon signed-rank (paired)" = "repeated_wilcoxon")
                 } else {
                     choices[["Non-parametric"]] <- c(
                         "Kruskal-Wallis" = "kruskal",
-                        "Pairwise Wilcoxon-Mann-Whitney" = "pairwise_mann_whitney"
+                        "Repeated Wilcoxon-Mann-Whitney" = "repeated_mann_whitney"
                     )
                 }
             } else {
@@ -1770,8 +1770,8 @@ server <- function(input, output, session) {
         }
         
         # --- Handle Inf (undetected) values based on test type ---
-        nonparam_tests <- c("kruskal", "pairwise_wilcoxon", "wilcoxon",
-                            "pairwise_mann_whitney", "mann_whitney")
+        nonparam_tests <- c("kruskal", "repeated_wilcoxon", "wilcoxon",
+                            "repeated_mann_whitney", "mann_whitney")
         
         n_dropped_samples <- 0
         n_dropped_points  <- 0
@@ -1853,13 +1853,13 @@ server <- function(input, output, session) {
                              "mixed_effect_2_sample" = run_mixed_effect_2_sample(data, response = response, equal.var = equal_var),    
                              "anova" = run_anova(data, response = response,comparison = comparison),
                              "kruskal" = run_kruskal(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
-                             "pairwise_ttest" = run_pairwise_ttest(data, response = response, comparison = comparison, equal.var = equal_var, p_adjust_method = p_adjust),
+                             "repeated_ttest" = run_repeated_ttest(data, response = response, comparison = comparison, equal.var = equal_var, p_adjust_method = p_adjust),
                              "ttest" = run_ttest(data, response = response, equal.var = equal_var),
-                             "pairwise_paired_ttest" = run_pairwise_paired_ttest(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
+                             "repeated_paired_ttest" = run_repeated_paired_ttest(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
                              "paired_ttest" = run_paired_ttest(data, response = response),
-                             "pairwise_wilcoxon" = run_pairwise_wilcoxon(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
+                             "repeated_wilcoxon" = run_repeated_wilcoxon(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
                              "wilcoxon" = run_wilcoxon(data, response = response),
-                             "pairwise_mann_whitney" = run_pairwise_mann_whitney(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
+                             "repeated_mann_whitney" = run_repeated_mann_whitney(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
                              "mann_whitney" = run_mann_whitney(data, response = response)
             )
             # Add dropped count to result for warning display
