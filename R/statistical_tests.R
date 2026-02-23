@@ -582,15 +582,15 @@ run_kruskal <- function(x,
         
         post_hoc_method <- ifelse(
             p_adjust_method != "none",
-            glue("Dunn's ({str_replace(p_adjust_method, 'holm', 'Holm')} adjusted)"),
-            glue("Dunn's (unadjusted)")
+            glue("Dunn's test ({str_replace(p_adjust_method, 'holm', 'Holm')} adjusted)"),
+            "Dunn's test (unadjusted)"
         )
         
     } else {
         post_hoc <- PMCMRplus::kwManyOneDunnTest(
             test_formula, data = x, p.adjust.method = "single-step"
         )
-        post_hoc_method <- glue("Dunn's")
+        post_hoc_method <- "Dunn's test"
     }
 
     post_hoc_res <- post_hoc |>
@@ -613,7 +613,7 @@ run_kruskal <- function(x,
     
     method <- glue("Two-sided Kruskal-Wallis test on {format_response(response)}, followed by {post_hoc_method}.",
                    # add `post-hoc test` before the adjustment method
-                   post_hoc_method = str_replace(post_hoc_method, "Dunn's", "Dunn's post-hoc test") 
+                   post_hoc_method = str_replace(post_hoc_method, "Dunn's test", "Dunn's post-hoc test") 
     )
 
     list(
