@@ -1642,10 +1642,6 @@ server <- function(input, output, session) {
         # Number of viable samples for parametric test
         n_finite_samples <- n_finite_samples()
         
-        print(paste0("n_bio_reps ", n_bio_reps()))
-        print(paste0("n_samples ", n_samples))
-        print(paste0("n_finite_samples ", n_finite_samples))
-        
         # Determine available tests and default based on metric and sample count
         # parametric choices
         choices <- list()
@@ -1784,9 +1780,6 @@ server <- function(input, output, session) {
                 mutate(!!response := if_else(
                     !is.finite(.data[[response]]), inf_replacement, .data[[response]]
                 ))
-            print("replaced inf with 999")
-            print("is finite?")
-            print(table(is.finite(data[[response]])))
             
         } else if (test %in% c("ancova", "ancova_2_sample")) {
             # ANCOVA: drop entire replicate run if the covariate (ref_dCq) is Inf
@@ -1990,17 +1983,12 @@ server <- function(input, output, session) {
     # Output: Flag for additional test panel (for conditional UI) ------------------
     output$stats_has_extra <- reactive({
         req(stats_result())
-        print("Has extra?:")
-        print(!is.null(stats_result()$extra_res))
         !is.null(stats_result()$extra_res)
     })
     outputOptions(output, "stats_has_extra", suspendWhenHidden = FALSE)
     
     output$stats_extra_in_omnibus <- reactive({
         req(stats_result())
-        print("Extra position:")
-        print(stats_result()$extra_position)
-        print(stats_result()$extra_position == "omnibus")
         stats_result()$extra_position == "omnibus"
     })
     outputOptions(output, "stats_extra_in_omnibus", suspendWhenHidden = FALSE)
