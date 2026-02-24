@@ -2420,10 +2420,35 @@ server <- function(input, output, session) {
     }
     
     export_raw_cq <- reactive({
-        req(cq_data())
-        cq_data() |>
-            mutate(Excluded = !Keep) |>
-            select(-Key, -Keep, -Undetected) |>
+        req(hot_to_r(input$raw_data))
+        req(nrow(hot_to_r(input$samples_tab)) > 0)
+        req(nrow(hot_to_r(input$targets_tab)) > 0)
+        
+        samples_metadata <- hot_to_r(input$samples_tab)
+        targets_metadata <- hot_to_r(input$targets_tab)
+        
+        hot_to_r(input$raw_data) |>
+            mutate(Key = row_number()) |>
+            # join sample metadata
+            left_join(
+                samples_metadata |> rename(Sample_Label = New_Label, Sample_Include = Include),
+                by = "Sample"
+            ) |>
+            # join target metadata
+            left_join(
+                targets_metadata |> rename(Target_Label = New_Label, Target_Include = Include),
+                by = "Target"
+            ) |>
+            # apply renames (use original name as fallback for unmatched)
+            mutate(
+                Sample = coalesce(Sample_Label, Sample),
+                Target = coalesce(Target_Label, Target),
+                Excluded = coalesce(!Sample_Include, FALSE) |
+                           coalesce(!Target_Include, FALSE) |
+                           Key %in% cache$excluded_point_keys
+            ) |>
+            mutate(Cq = parse_Cq(Cq) |> as.numeric()) |>
+            select(-Key, -Sample_Label, -Sample_Include, -Target_Label, -Target_Include) |>
             sanitize_inf()
     })
     
