@@ -854,7 +854,7 @@ server <- function(input, output, session) {
             mutate(Key = row_number()) |> # add unique Key ID matching raw data rows
             relocate(Key, .before = 1) |>
             # join with sample metadata for renaming, reordering and exclusion
-            inner_join(samples_metadata) |>
+            inner_join(samples_metadata, by = "Sample") |>
             filter(Include) |>
             # update and reorder sample name
             mutate(Sample = factor(New_Label,
@@ -1150,6 +1150,8 @@ server <- function(input, output, session) {
                 Cq_sd   = sd_handle_inf(Cq),
                 Cq_se   = Cq_sd / sqrt(Cq_n),
                 HK_mean_Cq = mean_handle_inf(HK_mean),
+                # carry forward individual HK gene averages (constant within group)
+                across(starts_with("HK_mean_") & ends_with("_Cq"), ~mean(.x, na.rm = TRUE)),
                 dCq_mean = mean_handle_inf(dCq),
                 # propagate SD and SE including HK variance/uncertainty.
                 dCq_sd = ifelse(input$propagate_var,
@@ -2373,8 +2375,11 @@ server <- function(input, output, session) {
             rename(ref_mean_dCq = ref_dCq_mean)
         
         # Base columns always shown
+        # Include individual HK gene average columns (HK_mean_<gene>_Cq) if present
+        hk_indiv_cols <- names(df)[grepl("^HK_mean_.+_Cq$", names(df)) & names(df) != "HK_mean_Cq"]
+        
         base_cols <- c("Replicate", "Sample", "Target",
-                       "Cq_n", "Cq_mean", "HK_mean_Cq",
+                       "Cq_n", "Cq_mean", "HK_mean_Cq", hk_indiv_cols,
                        "dCq_mean", "exp_dCq_mean",
                        "ref_mean_dCq",
                        "ddCq_mean", "exp_ddCq_mean")
