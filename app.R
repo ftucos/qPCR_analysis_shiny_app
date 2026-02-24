@@ -67,7 +67,7 @@ ui <- page_fillable(
             page_sidebar(
                 fillable = TRUE,
                 sidebar = sidebar(
-                    title = "Sample Controls",
+                    title = "Data Controls",
                     open = TRUE,
                     width = "380px",
                     prettySwitch(
@@ -77,8 +77,13 @@ ui <- page_fillable(
                         value = FALSE
                     ),
                     hr(),
+                    tags$h6(tags$strong("Samples")),
                     helpText("Edit 'New Label' to rename samples. Drag the row number to reorder them. Uncheck 'Include' to exclude samples from analysis."),
-                    rHandsontableOutput("samples_tab")
+                    rHandsontableOutput("samples_tab"),
+                    hr(),
+                    tags$h6(tags$strong("Targets")),
+                    helpText("Edit 'New Label' to rename targets. Drag the row number to reorder them. Uncheck 'Include' to exclude targets from analysis."),
+                    rHandsontableOutput("targets_tab")
                 ),
                 
                 # Main content area
@@ -670,6 +675,15 @@ server <- function(input, output, session) {
             stringsAsFactors = FALSE
         ),
         
+        # target control table (rename, reorder, exclude)
+        # targets rename, reordering and exclusion should be retrieved from input$targets_tab
+        targets_tab = data.frame(
+            Target    = character(),
+            New_Label = character(),
+            Include   = logical(),
+            stringsAsFactors = FALSE
+        ),
+        
         # list of excluded points
         excluded_point_keys = c(),
         select_ct_targeted  = c(),
@@ -824,6 +838,38 @@ server <- function(input, output, session) {
                     Include   = coalesce(Include, TRUE)
                 )
         }
+        
+        # 3. cache last state of targets_tab -----------------------------------
+        if (!is.null(input$targets_tab)) {
+            cache$targets_tab <- hot_to_r(input$targets_tab)
+        }
+        
+        current_targets <- hot_to_r(input$raw_data)$Target |>
+            unique() |>
+            drop_empty()
+        
+        previous_targets <- cache$targets_tab$Target
+        
+        if (length(current_targets) == 0) {
+            cache$targets_tab <- data.frame(
+                Target    = character(),
+                New_Label = character(),
+                Include   = logical()
+            )
+        } else if (length(previous_targets) == 0) {
+            cache$targets_tab <- data.frame(
+                Target    = current_targets,
+                New_Label = current_targets,
+                Include   = rep(TRUE, times = length(current_targets))
+            )
+        } else {
+            cache$targets_tab <- data.frame(Target = current_targets) |>
+                left_join(cache$targets_tab) |>
+                mutate(
+                    New_Label = coalesce(New_Label, Target),
+                    Include   = coalesce(Include, TRUE)
+                )
+        }
     })
     # Output: Sample control table ---------------------------------------------
     output$samples_tab <- renderRHandsontable({
@@ -842,13 +888,32 @@ server <- function(input, output, session) {
             hot_col("Include", type = "checkbox") |>
             hot_cols(columnSorting = FALSE)
     })
-    # Derived Reactive: Processed data (with parsed Cq, renames, sample ordering and exclusions) ----------
+    # Output: Target control table ---------------------------------------------
+    output$targets_tab <- renderRHandsontable({
+        req(nrow(cache$targets_tab) > 0)
+        
+        rhandsontable(
+            cache$targets_tab,
+            rowHeaders = TRUE,
+            readOnly = FALSE,
+            stretchH = "all",
+            contextMenu = FALSE,
+            manualRowMove = TRUE
+        ) |>
+            hot_col("Target", readOnly = TRUE) |>
+            hot_col("New_Label", type = "text") |>
+            hot_col("Include", type = "checkbox") |>
+            hot_cols(columnSorting = FALSE)
+    })
+    # Derived Reactive: Processed data (with parsed Cq, sample/target renames, ordering and exclusions) ----
     
     cq_data <- reactive({
         req(hot_to_r(input$raw_data))
         req(nrow(hot_to_r(input$samples_tab)) > 0)
+        req(!is.null(input$targets_tab), nrow(hot_to_r(input$targets_tab)) > 0)
         
         samples_metadata <- hot_to_r(input$samples_tab)
+        targets_metadata <- hot_to_r(input$targets_tab)
         
         hot_to_r(input$raw_data) |>
             mutate(Key = row_number()) |> # add unique Key ID matching raw data rows
@@ -859,6 +924,13 @@ server <- function(input, output, session) {
             # update and reorder sample name
             mutate(Sample = factor(New_Label,
                                    levels = unique(samples_metadata$New_Label)
+            )) |>
+            select(-New_Label, -Include) |>
+            # join with target metadata for renaming, reordering and exclusion
+            inner_join(targets_metadata, by = "Target") |>
+            filter(Include) |>
+            mutate(Target = factor(New_Label,
+                                    levels = unique(targets_metadata$New_Label)
             )) |>
             select(-New_Label, -Include) |>
             arrange(Sample) |>
