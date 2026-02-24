@@ -258,7 +258,9 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
             axis.text   = element_text(size = axis_text_size, color = "black"),
             axis.text.x = element_text(angle = 45, hjust = 1),
             axis.line = element_line(linewidth = lw, color = "black"),
-            axis.ticks = element_line(linewidth = lw, color = "black")
+            axis.ticks = element_line(linewidth = lw, color = "black"),
+            plot.title.position = "plot", 
+            plot.subtitle = element_text(hjust = 0.5) # center subtitle
         )
     
     # Error bars
