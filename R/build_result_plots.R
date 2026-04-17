@@ -20,7 +20,12 @@ build_results_plot <- function(plot_data, accent_color, secondary_color) {
     out_metric        <- plot_data$out_metric
     stat_type         <- plot_data$stat_type
     summarize_bio_reps <- plot_data$summarize_bio_reps
-    free_y             <- plot_data$free_y
+    y_axis_mode        <- plot_data$y_axis_mode %||% "auto"
+    
+    # Override y_limits with custom values if set
+    if (y_axis_mode == "custom" && !is.null(plot_data$custom_y_limits)) {
+        y_limits <- plot_data$custom_y_limits
+    }
     
     # Plotly hover text labels
     has_replicate <- "Replicate" %in% names(df_target)
@@ -127,10 +132,9 @@ build_results_plot <- function(plot_data, accent_color, secondary_color) {
             axis.text.x = element_text(angle = 45, hjust = 1)
         )
     
-    # disable y-axis limits if free_y is TRUE (for faceting by bio rep)
-    if (isFALSE(free_y) | summarize_bio_reps == "aggregate") {
-        p <- p +
-            coord_cartesian(ylim = y_limits) 
+    # Y axis limits based on mode
+    if (y_axis_mode != "free" || summarize_bio_reps == "aggregate") {
+        p <- p + coord_cartesian(ylim = y_limits)
     }
     
     # Add error bars if requested
@@ -151,7 +155,7 @@ build_results_plot <- function(plot_data, accent_color, secondary_color) {
     
     # Facet by replicate if present
     if (summarize_bio_reps == "split" & ("Replicate" %in% names(df_target))) {
-        facet_scales <- if (isTRUE(free_y)) "free_y" else "fixed"
+        facet_scales <- if (y_axis_mode == "free") "free_y" else "fixed"
         p <- p + ggh4x::facet_wrap2(~Replicate, axes = "all", scales = facet_scales)
     }
     
@@ -180,7 +184,12 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
     out_metric        <- plot_data$out_metric
     stat_type         <- plot_data$stat_type
     summarize_bio_reps <- plot_data$summarize_bio_reps
-    free_y             <- plot_data$free_y
+    y_axis_mode        <- plot_data$y_axis_mode %||% "auto"
+    
+    # Override y_limits with custom values if set
+    if (y_axis_mode == "custom" && !is.null(plot_data$custom_y_limits)) {
+        y_limits <- plot_data$custom_y_limits
+    }
     
     # For exp_dCq and exp_ddCq, force lower limit to 0
     if (out_metric %in% c("exp_dCq", "exp_ddCq")) {
@@ -271,13 +280,13 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
             plot.subtitle = element_text(hjust = 0.5) # center subtitle
         )
     
-    # disable y-axis limits if free_y is TRUE (for faceting by bio rep)
-    if (isFALSE(free_y) | summarize_bio_reps == "aggregate") {
-        p <- p +
-            coord_cartesian(ylim = y_limits, clip = "off") 
+    # Y axis limits based on mode
+    # clip = "off" only when significance bars are shown (they may overflow)
+    clip <- if (isTRUE(show_signif_bars)) "off" else "on"
+    if (y_axis_mode != "free" || summarize_bio_reps == "aggregate") {
+        p <- p + coord_cartesian(ylim = y_limits, clip = clip)
     } else {
-        p <- p +
-            coord_cartesian(clip = "off")
+        p <- p + coord_cartesian(clip = clip)
     }
     
     # Error bars
@@ -302,11 +311,20 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
         y_range <- diff(y_limits)
         step <- signif_text_size / (plot_height * 72 / 2.54) * y_range * 1.8
         
-        # Compute y_max excluding undetected (Inf) values
+        # Compute y_max for significance bar base position
+        # Consider data points, error bar tops, and the visible y axis upper limit
         y_vals <- sign * df_target[[y_value]]
         y_vals_finite <- y_vals[is.finite(y_vals)]
-        y_max_signif <- if (length(y_vals_finite) > 0) max(y_vals_finite) else y_limits[2]
+        if (stat_type != "none" && !is.null(error_bar_high)) {
+            eb_tops <- sign * df_summary_target[[error_bar_high]]
+            y_vals_finite <- c(y_vals_finite, eb_tops[is.finite(eb_tops)])
+        }
+        # failback to y_limits[2] if no data is available
+        y_max_data <- if (length(y_vals_finite) > 0) max(y_vals_finite) else y_limits[2]
+        # if y_axis_mode is custom, use y_lim provided upper y_limits allowing for data clipping
+        y_max_signif = if (y_axis_mode == "custom") y_limits[2] else max(y_max_data, y_limits[2])
         
+
         signif_data <- prepare_signif_data(
             stats_result,
             samples = df_target$Sample,
@@ -354,7 +372,7 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
     
     # Facet by replicate if present
     if (summarize_bio_reps == "split" & ("Replicate" %in% names(df_target))) {
-        facet_scales <- if (isTRUE(free_y)) "free_y" else "fixed"
+        facet_scales <- if (y_axis_mode == "free") "free_y" else "fixed"
         p <- p + ggh4x::facet_wrap2(~Replicate, axes = "all", scales = facet_scales)
     }
     

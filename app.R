@@ -173,13 +173,31 @@ ui <- page_fillable(
                         width     = "100%",
                         size      = "sm"
                     ),
+                    radioGroupButtons(
+                        inputId   = "y_axis_mode",
+                        label     = "Y Axis",
+                        choices   = c("Auto" = "auto", "Free" = "free", "Custom" = "custom"),
+                        selected  = "auto",
+                        justified = TRUE,
+                        width     = "60%",
+                        size      = "sm"
+                    ),
                     conditionalPanel(
-                        condition = "input.summarize_bio_reps == 'split'",
-                        prettySwitch(
-                            "free_y_facet",
-                            label = "Free Y axis scales",
-                            fill = TRUE, status = "primary",
-                            value = FALSE
+                        condition = "input.y_axis_mode == 'custom'",
+                        div(
+                            class = "d-flex gap-2",
+                            numericInput(
+                                "y_axis_min",
+                                label = "Y min",
+                                value = NULL, step = 0.1,
+                                width = "100px"
+                            ),
+                            numericInput(
+                                "y_axis_max",
+                                label = "Y max",
+                                value = NULL, step = 0.1,
+                                width = "100px"
+                            )
                         )
                     ),
                     radioGroupButtons(
@@ -1384,6 +1402,37 @@ server <- function(input, output, session) {
             )
         }
     })
+    # Observer: Update Y Axis mode choices based on aggregation mode -----------
+    
+    observeEvent(input$summarize_bio_reps, {
+        if (input$summarize_bio_reps == "aggregate") {
+            # Hide 'Free' and reset to 'auto' if 'free' was selected
+            updateRadioGroupButtons(
+                session,
+                "y_axis_mode",
+                disabledChoices = "free",
+                selected = if (input$y_axis_mode == "free") "auto" else input$y_axis_mode
+            )
+        } else {
+            updateRadioGroupButtons(
+                session,
+                "y_axis_mode",
+                disabledChoices = character(0)
+            )
+        }
+    })
+    # Observer: Pre-fill custom Y axis inputs with auto values ----------------
+    
+    observeEvent(input$y_axis_mode, {
+        if (input$y_axis_mode == "custom") {
+            d <- tryCatch(result_plot_data(), error = function(e) NULL)
+            if (!is.null(d)) {
+                y_lim <- d$y_limits
+                updateNumericInput(session, "y_axis_min", value = round(y_lim[1], 2))
+                updateNumericInput(session, "y_axis_max", value = round(y_lim[2], 2))
+            }
+        }
+    })
     # Derived Reactive: dCq summary aggregating replicates if present ----------
     
     dCq_summary <- reactive({
@@ -2334,7 +2383,9 @@ server <- function(input, output, session) {
             stat_type          = input$stat_type,
             summarize_bio_reps = input$summarize_bio_reps,
             target_name        = input$select_out_target,
-            free_y             = isTRUE(input$free_y_facet)
+            y_axis_mode        = input$y_axis_mode %||% "auto",
+            custom_y_limits    = if ((input$y_axis_mode %||% "auto") == "custom")
+                                     c(input$y_axis_min, input$y_axis_max) else NULL
         )
     })
     
