@@ -1157,9 +1157,9 @@ server <- function(input, output, session) {
             )) |>
             # summarize each HK separately
             summarize(
-                HK_mean = mean(Cq, na.rm = TRUE),
-                HK_sd   = sd(Cq, na.rm = TRUE),
-                HK_n    = length(na.omit(Cq)), # sample size for each gene
+                HK_mean = mean_handle_inf(Cq),
+                HK_sd   = sd_handle_inf(Cq),
+                HK_n    = n_valid_Cq(Cq), # sample size for each gene
                 .groups = "drop"
             )
         
@@ -1169,7 +1169,7 @@ server <- function(input, output, session) {
                 c("Sample", any_of("Replicate"))
             )) |>
             summarize(
-                HK_mean = mean(HK_mean, na.rm = TRUE),
+                HK_mean = mean_handle_inf(HK_mean),
                 n_HK_genes = sum(HK_n > 0),
                 # pooled SD for independet samples, allowing different mean (same as in ANOVA)
                 HK_sd_pool = sqrt(
