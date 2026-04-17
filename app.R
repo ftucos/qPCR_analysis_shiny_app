@@ -173,6 +173,15 @@ ui <- page_fillable(
                         width     = "100%",
                         size      = "sm"
                     ),
+                    conditionalPanel(
+                        condition = "input.summarize_bio_reps == 'split'",
+                        prettySwitch(
+                            "free_y_facet",
+                            label = "Free Y axis scales",
+                            fill = TRUE, status = "primary",
+                            value = FALSE
+                        )
+                    ),
                     radioGroupButtons(
                         inputId  = "out_metric",
                         label    = "Plot",
@@ -2324,7 +2333,8 @@ server <- function(input, output, session) {
             out_metric         = input$out_metric,
             stat_type          = input$stat_type,
             summarize_bio_reps = input$summarize_bio_reps,
-            target_name        = input$select_out_target
+            target_name        = input$select_out_target,
+            free_y             = isTRUE(input$free_y_facet)
         )
     })
     

@@ -20,6 +20,7 @@ build_results_plot <- function(plot_data, accent_color, secondary_color) {
     out_metric        <- plot_data$out_metric
     stat_type         <- plot_data$stat_type
     summarize_bio_reps <- plot_data$summarize_bio_reps
+    free_y             <- plot_data$free_y
     
     # Plotly hover text labels
     has_replicate <- "Replicate" %in% names(df_target)
@@ -118,13 +119,19 @@ build_results_plot <- function(plot_data, accent_color, secondary_color) {
             labels = if (undetected_present) function(x) ifelse(x == y_limits[1], y_min_label, x) else waiver(),
             oob = if (undetected_present) function(x, range) squish_infinite_to_val(x, range, to_value = abs(y_limits[1])) else scales::oob_keep
         ) +
-        coord_cartesian(ylim = y_limits) +
         theme_minimal(base_size = 14) +
         theme(
             legend.position = "bottom",
-            panel.grid.minor = element_blank(),
+            #panel.grid.minor = element_blank(),
+            panel.grid.minor = element_line(linewidth = 0.3, color = "#EFEFEF"),
             axis.text.x = element_text(angle = 45, hjust = 1)
         )
+    
+    # disable y-axis limits if free_y is TRUE (for faceting by bio rep)
+    if (isFALSE(free_y) | summarize_bio_reps == "aggregate") {
+        p <- p +
+            coord_cartesian(ylim = y_limits) 
+    }
     
     # Add error bars if requested
     if (stat_type != "none") {
@@ -144,7 +151,8 @@ build_results_plot <- function(plot_data, accent_color, secondary_color) {
     
     # Facet by replicate if present
     if (summarize_bio_reps == "split" & ("Replicate" %in% names(df_target))) {
-        p <- p + ggh4x::facet_wrap2(~Replicate, axes = "all")
+        facet_scales <- if (isTRUE(free_y)) "free_y" else "fixed"
+        p <- p + ggh4x::facet_wrap2(~Replicate, axes = "all", scales = facet_scales)
     }
     
     return(p)
@@ -172,6 +180,7 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
     out_metric        <- plot_data$out_metric
     stat_type         <- plot_data$stat_type
     summarize_bio_reps <- plot_data$summarize_bio_reps
+    free_y             <- plot_data$free_y
     
     # For exp_dCq and exp_ddCq, force lower limit to 0
     if (out_metric %in% c("exp_dCq", "exp_ddCq")) {
@@ -249,7 +258,6 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
             labels = if (undetected_present) function(x) ifelse(x == y_limits[1], y_min_label, x) else waiver(),
             oob = if (undetected_present) function(x, range) squish_infinite_to_val(x, range, to_value = abs(y_limits[1])) else scales::oob_keep
         ) +
-        coord_cartesian(ylim = y_limits, clip = "off") +
         theme_minimal(base_size = axis_text_size) +
         theme(
             legend.position = "bottom",
@@ -262,6 +270,15 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
             plot.title.position = "plot", 
             plot.subtitle = element_text(hjust = 0.5) # center subtitle
         )
+    
+    # disable y-axis limits if free_y is TRUE (for faceting by bio rep)
+    if (isFALSE(free_y) | summarize_bio_reps == "aggregate") {
+        p <- p +
+            coord_cartesian(ylim = y_limits, clip = "off") 
+    } else {
+        p <- p +
+            coord_cartesian(clip = "off")
+    }
     
     # Error bars
     if (stat_type != "none") {
@@ -337,7 +354,8 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
     
     # Facet by replicate if present
     if (summarize_bio_reps == "split" & ("Replicate" %in% names(df_target))) {
-        p <- p + ggh4x::facet_wrap2(~Replicate, axes = "all")
+        facet_scales <- if (isTRUE(free_y)) "free_y" else "fixed"
+        p <- p + ggh4x::facet_wrap2(~Replicate, axes = "all", scales = facet_scales)
     }
     
     # Force panel size
