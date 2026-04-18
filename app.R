@@ -1835,8 +1835,6 @@ server <- function(input, output, session) {
             }
         }
         
-        # Freeze the reactive value to prevent stats_result from running with stale test value
-        freezeReactiveValue(input, "stats_test")
         updatePickerInput(session, "stats_test", choices = choices, selected = default)
     })
     # Output: Post-hoc test description based on omnibus test and comparison ----------
@@ -1867,6 +1865,7 @@ server <- function(input, output, session) {
     # Reactive: Run Statistical Test -------------------------------------------
     
     stats_result <- reactive({
+        req(input$stats_metric)
         req(input$stats_test)
         req(input$select_out_target)
         req(n_bio_reps() >= 2)
@@ -1875,6 +1874,19 @@ server <- function(input, output, session) {
         # statistical test settings
         test       <- input$stats_test
         response   <- input$stats_metric
+        
+        # Validate that the current test is compatible with the current metric.
+        # After stats_metric changes, there is a brief moment where stats_test
+        # still holds the old value (until the observer updates it).  Silently
+        # abort here so we never run an incompatible test/metric combination.
+        dCq_tests     <- c("ancova", "ancova_2_sample", "mixed_effect",
+                           "mixed_effect_2_sample", "paired_ttest",
+                           "repeated_paired_ttest", "repeated_wilcoxon", "wilcoxon")
+        non_dCq_tests <- c("anova", "ttest", "repeated_ttest",
+                           "kruskal", "repeated_mann_whitney", "mann_whitney")
+        valid_tests   <- if (response == "dCq") dCq_tests else non_dCq_tests
+        req(test %in% valid_tests)
+        
         equal_var  <- !isTRUE(input$stats_unequal_variance)
         comparison <- input$stats_comparison
         p_adjust   <- input$stats_multiple_comparison_adjust
