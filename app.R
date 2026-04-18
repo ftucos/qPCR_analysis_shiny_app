@@ -714,7 +714,7 @@ server <- function(input, output, session) {
         
         # list of excluded points
         excluded_point_keys = c(),
-        select_ct_targeted  = c(),
+        selected_ct_target  = c(),
         targets_available   = c()
     )
     # Observer: Toggle biological replicates column ----------------------------
@@ -992,8 +992,8 @@ server <- function(input, output, session) {
         req(!identical(targets, cache$targets_available))
         
         # restore previous selection if possible
-        if (cache$select_ct_targeted %in% targets) {
-            selected <- cache$select_ct_targeted
+        if (cache$selected_ct_target %in% targets) {
+            selected <- cache$selected_ct_target
         } else {
             selected <- targets[1]
         }
@@ -1007,7 +1007,7 @@ server <- function(input, output, session) {
     })
     # OvserveEvent: cache last target selected ---------------------------------
     observeEvent(input$select_ct_target, {
-        cache$select_ct_targeted <- input$select_ct_target
+        cache$selected_ct_target <- input$select_ct_target
     })
     # Output: Cq Plot and plot title -------------------------------------------
     
