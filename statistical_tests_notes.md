@@ -87,8 +87,9 @@ It is recommended to test in the log space ($ΔCq$/$ΔΔCq$) because qPCR varian
 ## 3 — Handling of undetected/censored values
 
 - The default undetected replacement cycle is 40. If a detected Cq is greater than the configured replacement, the app raises the replacement to the first integer above that detected value.
-- Within a technical-replicate group, undetected measurements are excluded from the mean whenever at least one technical replicate is detected. They are still included in `Cq_censored_n`, so the reported detected and censored counts describe all original valid measurements. `Cq_n` records the measurements actually used for the calculation. If every technical replicate is undetected, their replacement values are retained.
-- The app retains a numeric replacement and a censoring flag for every Cq, ΔCq, ΔΔCq, and exponentiated result. Tables apply `>`/`<` labels to the displayed censored metric (for example `>40`, `>20.2`, or `<-20.2`).
+- Within a technical-replicate group, undetected measurements are excluded whenever at least one technical replicate is detected. If every technical replicate is undetected, their replacement values are retained and labeled `Undetected` in both the Technical Replicates and Bio Rep Averages exports. 
+`Cq_n` records the measurements actually used for the calculation.
+- The app retains numeric replacements and censoring flags internally for Cq, ΔCq, ΔΔCq, and exponentiated results. Exports omit the internal `*_numeric` and `*_censored` columns and apply `>`/`<` labels directly to the displayed metric (for example `>40`, `>20.2`, or `<-20.2`). Summary tables report `dCq_undetected_n` and `ddCq_undetected_n`.
 - Any sample can be selected as the reference, including one with an undetected target value, a missing target value, or a biological replicate excluded because its housekeeping gene was undetected. The app recommends a complete alternative but does not force the change. Affected replicate-level ΔΔCq values become `NA` and are omitted from ΔΔCq statistical tests and ANCOVA; unaffected replicates remain available.
 
 > [!IMPORTANT]

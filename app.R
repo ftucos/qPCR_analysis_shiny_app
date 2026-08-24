@@ -1430,34 +1430,13 @@ server <- function(input, output, session) {
                 )
         }
         
-        target_data <- cq_data() |>
+        result <- cq_data() |>
             filter(
                 Keep,
                 !Target %in% input$hk_genes
-            )
-
-        # Count every valid technical measurement before censored rows are
-        # removed from mixed groups. These counts describe the original group,
-        # while Cq_n below continues to describe the values used in the mean.
-        target_detection_counts <- target_data |>
-            group_by(across(c("Sample", "Target", any_of("Replicate")))) |>
-            summarize(
-                Cq_detected_n_observed = sum(
-                    !is.na(Cq) & !(Cq_censored %in% TRUE)
-                ),
-                Cq_censored_n_observed = sum(
-                    !is.na(Cq) & (Cq_censored %in% TRUE)
-                ),
-                .groups = "drop"
-            )
-        target_group_cols <- intersect(
-            c("Sample", "Target", "Replicate"), names(target_data)
-        )
-
-        result <- target_data |>
+            ) |>
             retain_detected_or_all_censored() |>
             inner_join(HK_summary) |>
-            left_join(target_detection_counts, by = target_group_cols) |>
             mutate(
                 dCq     = Cq - HK_mean,
                 dCq_censored = Cq_censored,
@@ -1484,10 +1463,6 @@ server <- function(input, output, session) {
             summarize(
                 # Number of technical values retained for the calculation.
                 Cq_n    = n(),
-                # Detected/censored counts refer to the original group, before
-                # undetected rows in a mixed group were excluded from the mean.
-                Cq_detected_n = first(Cq_detected_n_observed),
-                Cq_censored_n = first(Cq_censored_n_observed),
                 Cq_mean = mean(Cq),
                 Cq_censored = all(Cq_censored),
                 Cq_sd   = sd(Cq),
@@ -1711,7 +1686,7 @@ server <- function(input, output, session) {
             group_by(across(c("Sample", "Target"))) |>
             summarize(
                 dCq_n  = n(),
-                dCq_censored_n = sum(dCq_censored, na.rm = TRUE),
+                dCq_undetected_n = sum(dCq_censored, na.rm = TRUE),
                 dCq_sd = sd(dCq_mean),
                 dCq_se = dCq_sd / sqrt(dCq_n),
                 # mean of means
@@ -2247,7 +2222,7 @@ server <- function(input, output, session) {
             ))) |>
             summarize(
                 ddCq_n    = count_non_missing(ddCq_mean),
-                ddCq_censored_n = sum(ddCq_censored, na.rm = TRUE),
+                ddCq_undetected_n = sum(ddCq_censored, na.rm = TRUE),
                 ddCq_sd   = sd(ddCq_mean, na.rm = TRUE),
                 ddCq_se   = ddCq_sd / sqrt(ddCq_n),
                 # mean of means
@@ -3090,7 +3065,8 @@ server <- function(input, output, session) {
     })
     # Export Data Reactives (shared by preview tables and XLSX download) ========
     
-    # Export the display value, numeric replacement and one censoring flag.
+    # Format each exported metric in place. Internal numeric values and
+    # censoring flags are not exported as additional columns.
     finalize_export_metrics <- function(df, metrics, digits = 4) {
         metrics <- metrics[metrics %in% names(df)]
         for (metric in metrics) {
@@ -3109,24 +3085,25 @@ server <- function(input, output, session) {
             }
             censored[is.na(censored)] <- FALSE
 
-            df[[paste0(metric, "_numeric")]] <- df[[metric]]
             df[[metric]] <- format_censored_value(
                 df[[metric]], censored,
                 censoring_direction_for(metric), digits = digits
             )
-            df[[paste0(metric, "_censored")]] <- censored
         }
         df
     }
 
-    metric_export_names <- function(metrics) {
-        unlist(lapply(metrics, function(metric) {
-            if (is.null(censoring_column_for(metric))) {
-                metric
-            } else {
-                c(metric, paste0(metric, c("_numeric", "_censored")))
-            }
-        }), use.names = FALSE)
+    # Label the target measurement itself. Reference censoring may make ddCq
+    # unavailable, but it must not label a detected target row as undetected.
+    add_undetected_label <- function(df) {
+        df |>
+            mutate(
+                Undetected = if_else(
+                    Cq_censored %in% TRUE,
+                    "Undetected",
+                    ""
+                )
+            )
     }
     
     export_raw_cq <- reactive({
@@ -3169,7 +3146,7 @@ server <- function(input, output, session) {
             select(-Key, -Sample_Label, -Sample_Include, -Target_Label, -Target_Include) |>
             finalize_export_metrics("Cq") |>
             select(Sample, Target, any_of("Replicate"),
-                   all_of(metric_export_names("Cq")), Excluded)
+                   Cq, Excluded)
     })
     
     export_technical <- reactive({
@@ -3190,11 +3167,12 @@ server <- function(input, output, session) {
         metrics <- c(pre_ddCq_metrics, ddCq_metrics)
 
         df |>
+            add_undetected_label() |>
             finalize_export_metrics(metrics) |>
-            select(any_of("Replicate"), Sample, Target,
-                   any_of(metric_export_names(pre_ddCq_metrics)),
+            select(any_of("Replicate"), Sample, Target, Undetected,
+                   any_of(pre_ddCq_metrics),
                    Reference_Sample,
-                   any_of(metric_export_names(ddCq_metrics)))
+                   any_of(ddCq_metrics))
     })
     
     export_bio_rep <- reactive({
@@ -3217,10 +3195,10 @@ server <- function(input, output, session) {
         ddCq_metrics <- c("ddCq_mean", "exp_ddCq_mean")
         metrics <- c(pre_ddCq_metrics, ddCq_metrics)
         base_cols <- c("Replicate", "Sample", "Target",
-                       "Cq_n", "Cq_detected_n", "Cq_censored_n",
-                       metric_export_names(pre_ddCq_metrics),
+                       "Undetected", "Cq_n",
+                       pre_ddCq_metrics,
                        "Reference_Sample",
-                       metric_export_names(ddCq_metrics))
+                       ddCq_metrics)
         
         # Only include dispersion when single replicate (or no Replicate column)
         # and user has error bars enabled
@@ -3237,6 +3215,7 @@ server <- function(input, output, session) {
         }
         
         df |>
+            add_undetected_label() |>
             finalize_export_metrics(metrics) |>
             select(any_of(base_cols))
     })
@@ -3255,12 +3234,12 @@ server <- function(input, output, session) {
         df |>
             finalize_export_metrics(metrics) |>
             select(Sample, Target,
-                   any_of(c("dCq_n", "dCq_censored_n")),
-                   any_of(metric_export_names(dCq_metrics)),
+                   any_of(c("dCq_n", "dCq_undetected_n")),
+                   any_of(dCq_metrics),
                    any_of(c("dCq_sd", "dCq_se")),
                    Reference_Sample,
-                   any_of(c("ddCq_n", "ddCq_censored_n")),
-                   any_of(metric_export_names(ddCq_metrics)),
+                   any_of(c("ddCq_n", "ddCq_undetected_n")),
+                   any_of(ddCq_metrics),
                    any_of(c("ddCq_sd", "ddCq_se")))
     })
     
