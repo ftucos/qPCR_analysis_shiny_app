@@ -632,7 +632,7 @@ run_kruskal <- function(x,
 run_repeated_ttest <- function(x,
                                response   = c("ddCq", "exp_ddCq"),
                                comparison = c("pairwise", "trt.vs.ctrl"),
-                               equal.var  = TRUE,
+                               equal.var  = FALSE,
                                p_adjust_method   = c("BH", "holm", "none")) {
 
     response <- match.arg(response)
@@ -698,7 +698,7 @@ run_repeated_ttest <- function(x,
 # For ddCq or exp_ddCq (independent samples, no omnibus)
 run_ttest <- function(x,
                       response  = c("ddCq", "exp_ddCq"),
-                      equal.var = TRUE) {
+                      equal.var = FALSE) {
     
     response <- match.arg(response)
     stopifnot(is.logical(equal.var), length(equal.var) == 1L, !is.na(equal.var))
@@ -720,7 +720,7 @@ run_ttest <- function(x,
     test_label <- ifelse(
         equal.var,
         "t-test",
-        "one-sample t-test"
+        "Welch's t-test"
     )
     
     method <- glue("Two-sided {test_label} on {format_response(response)}.")
@@ -948,7 +948,7 @@ run_repeated_mann_whitney <- function(x,
         # All pairwise combinations
         comparisons_list <- combn(groups, 2, simplify = FALSE)
     } else {
-        # Treatment vs Control (Reference)
+        # Treatment vs reference
         ref_group <- groups[1]
         other_groups <- groups[-1]
         comparisons_list <- lapply(other_groups, function(g) c(ref_group, g))
