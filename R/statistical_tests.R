@@ -649,12 +649,13 @@ run_repeated_ttest <- function(x,
     }
         
     test <- rstatix::pairwise_t_test(
-        data = x,
-        formula = test_formula,
+        data      = x,
+        formula   = test_formula,
         var.equal = equal.var,
         ref.group = reference_sample,
-        pool.sd = FALSE, # when pooling SD it becomes a Fisher's LSD test
-        p.adjust.method = p_adjust_method
+        pool.sd   = FALSE, # when pooling SD it becomes a Fisher's LSD test
+        p.adjust.method = p_adjust_method,
+        error.as.na = T
     )
     
     test_res <- test |>
@@ -753,11 +754,13 @@ run_repeated_paired_ttest <- function(x,
     }
     
     test <- rstatix::pairwise_t_test(
-        data      = x |> arrange(Replicate), # ensure proper pairing
+        data      = x,
+        id        = "Replicate",
         formula   = test_formula,
         ref.group = reference_sample,
         paired    = T,
-        p.adjust.method = p_adjust_method
+        p.adjust.method = p_adjust_method,
+        error.as.na = T
     )
     
     test_res <- test |>
@@ -805,7 +808,8 @@ run_paired_ttest <- function(x,
     
     
     test <- rstatix::t_test(
-        data      = x |> arrange(Replicate), # ensure proper pairing
+        data      = x,
+        id        = "Replicate",
         formula   = test_formula,
         paired    = T,
     )
@@ -848,11 +852,13 @@ run_repeated_wilcoxon <- function(x,
     }
     
     test <- rstatix::pairwise_wilcox_test(
-        data      = x |> arrange(Replicate), # ensure proper pairing
+        data      = x,
+        id        = "Replicate",
         formula   = test_formula,
         ref.group = reference_sample,
         paired    = T,
-        p.adjust.method = p_adjust_method
+        p.adjust.method = p_adjust_method,
+        error.as.na = T
     )
     
     test_res <- test |>
@@ -897,7 +903,8 @@ run_wilcoxon <- function(x, response = c("dCq")) {
     test_formula <- reformulate("Sample", response = response)
     
     test <- rstatix::wilcox_test(
-        data      = x |> arrange(Replicate), # ensure proper pairing
+        data      = x,
+        id        = "Replicate",
         formula   = test_formula,
         paired    = T,
     )
