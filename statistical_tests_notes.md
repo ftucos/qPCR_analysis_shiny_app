@@ -4,7 +4,7 @@ Overview of all supported statistical tests in the Shiny qPCR app for the differ
 
 ---
 
-## 1 — $ΔCq$ (dCq) tests
+## 1 — $ΔCq$ tests
 
 This app assumes that dCq tests operate on **non-independent (paired) data** (there is a batch effect to be accounted for between the different biological replicates), and all the statistical tests try to correct for that in different ways.
 
@@ -45,7 +45,7 @@ In the presence of complete data, the paired t-test and Mixed Effect Model matem
 
 ---
 
-## 2 — $ΔΔCq$ (ddCq) and $2^{-ΔΔCq}$ (exp_ddCq) tests
+## 2 — $ΔΔCq$ and $2^{-ΔΔCq}$ tests
 
 These tests operate on **independent** (unpaired) data because they assume that the ΔΔCq normalisation already corrected for any batch variability in biological replicates. Both $ΔΔCq$ and $2^{-ΔΔCq}$ share the same set of tests.
 
@@ -87,9 +87,9 @@ It is recommended to test in the log space ($ΔCq$/$ΔΔCq$) because qPCR varian
 ## 3 — Handling of undetected/censored values
 
 - The default undetected replacement cycle is 40. If a detected Cq is greater than the configured replacement, the app raises the replacement to the first integer above that detected value.
-- Within a technical-replicate group, undetected measurements are discarded whenever at least one technical replicate is detected. If every technical replicate is undetected, their replacement values are retained.
+- Within a technical-replicate group, undetected measurements are excluded from the mean whenever at least one technical replicate is detected. They are still included in `Cq_censored_n`, so the reported detected and censored counts describe all original valid measurements. `Cq_n` records the measurements actually used for the calculation. If every technical replicate is undetected, their replacement values are retained.
 - The app retains a numeric replacement and a censoring flag for every Cq, ΔCq, ΔΔCq, and exponentiated result. Tables apply `>`/`<` labels to the displayed censored metric (for example `>40`, `>20.2`, or `<-20.2`).
-- If the selected reference sample has any undetected observation contributing to the selected target, it cannot be used for ΔΔCq calculation or ANCOVA. The app prompts for a fully detected reference sample. Other ΔCq analyses remain available.
+- Any sample can be selected as the reference, including one with an undetected target value, a missing target value, or a biological replicate excluded because its housekeeping gene was undetected. The app recommends a complete alternative but does not force the change. Affected replicate-level ΔΔCq values become `NA` and are omitted from ΔΔCq statistical tests and ANCOVA; unaffected replicates remain available.
 
 > [!IMPORTANT]
 > Replacing undetected Cq values with a fixed maximum-cycle value can bias expression estimates and the resulting statistical inference. See McCall et al. (2014), [*On non-detects in qPCR data*](https://doi.org/10.1093/bioinformatics/btu239).

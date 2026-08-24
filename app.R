@@ -1430,13 +1430,34 @@ server <- function(input, output, session) {
                 )
         }
         
-        result <- cq_data() |>
+        target_data <- cq_data() |>
             filter(
                 Keep,
                 !Target %in% input$hk_genes
-            ) |>
+            )
+
+        # Count every valid technical measurement before censored rows are
+        # removed from mixed groups. These counts describe the original group,
+        # while Cq_n below continues to describe the values used in the mean.
+        target_detection_counts <- target_data |>
+            group_by(across(c("Sample", "Target", any_of("Replicate")))) |>
+            summarize(
+                Cq_detected_n_observed = sum(
+                    !is.na(Cq) & !(Cq_censored %in% TRUE)
+                ),
+                Cq_censored_n_observed = sum(
+                    !is.na(Cq) & (Cq_censored %in% TRUE)
+                ),
+                .groups = "drop"
+            )
+        target_group_cols <- intersect(
+            c("Sample", "Target", "Replicate"), names(target_data)
+        )
+
+        result <- target_data |>
             retain_detected_or_all_censored() |>
             inner_join(HK_summary) |>
+            left_join(target_detection_counts, by = target_group_cols) |>
             mutate(
                 dCq     = Cq - HK_mean,
                 dCq_censored = Cq_censored,
@@ -1461,9 +1482,12 @@ server <- function(input, output, session) {
                 c("Sample", "Target", any_of("Replicate"))
             )) |>
             summarize(
+                # Number of technical values retained for the calculation.
                 Cq_n    = n(),
-                Cq_detected_n = sum(!Cq_censored, na.rm = TRUE),
-                Cq_censored_n = sum(Cq_censored, na.rm = TRUE),
+                # Detected/censored counts refer to the original group, before
+                # undetected rows in a mixed group were excluded from the mean.
+                Cq_detected_n = first(Cq_detected_n_observed),
+                Cq_censored_n = first(Cq_censored_n_observed),
                 Cq_mean = mean(Cq),
                 Cq_censored = all(Cq_censored),
                 Cq_sd   = sd(Cq),
