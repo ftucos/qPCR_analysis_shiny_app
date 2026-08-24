@@ -480,16 +480,6 @@ ui <- page_fillable(
                         card_header(
                             textOutput("stats_card_title", inline = TRUE)
                         ),
-                        # Warning when max cycle replacement values are included in statistics
-                        conditionalPanel(
-                            condition = "output.stats_dropped_count > 0",
-                            div(
-                                class = "alert alert-warning py-2 px-3 mb-3 d-flex align-items-center",
-                                style = "font-size: 0.85em;",
-                                bs_icon("exclamation-triangle"),
-                                uiOutput("stats_dropped_warning")
-                            )
-                        ),
                         # Omnibus section (for ANCOVA, ANOVA, Mixed Effect, Kruskal-Wallis)
                         conditionalPanel(
                             condition = "output.has_omnibus_test",
@@ -2328,23 +2318,6 @@ server <- function(input, output, session) {
         input$stats_test %in% c("ancova", "mixed_effect", "anova", "kruskal")
     })
     outputOptions(output, "has_omnibus_test", suspendWhenHidden = FALSE)
-    
-    # Output: Count replacements included in the selected statistical analysis -
-    output$stats_dropped_count <- reactive({
-        req(stats_result())
-        stats_result()$n_censored_points %||% 0
-    })
-    outputOptions(output, "stats_dropped_count", suspendWhenHidden = FALSE)
-    
-    # Output: Warning text for numeric replacement values ----------------------
-    output$stats_dropped_warning <- renderUI({
-        req(stats_result())
-        n <- stats_result()$n_censored_points %||% 0
-        req(n > 0)
-        tags$span(
-            glue("{n} biological-replicate run{ifelse(n == 1, '', 's')} with all technical replicates undetected {ifelse(n == 1, 'is', 'are')} included using the numeric replacement cycle ({max_cycle_value()}); the censoring flag is retained in the data exports.")
-        )
-    })
     
     # Output: Omnibus badge (brief p-value indicator) --------------------------
     
