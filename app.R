@@ -117,7 +117,7 @@ ui <- page_fillable(
                             )
                         )
                     ),
-                    helpText("Undetected Cq values are replaced numerically with this cycle.")
+                    helpText("Undetected Cq values are replaced with this cycle.")
                 ),
                 
                 # Main content area
@@ -203,6 +203,16 @@ ui <- page_fillable(
                         "reference_sample",
                         "Reference sample (ΔΔCq / ANCOVA)",
                         choices = NULL
+                    ),
+                    prettySwitch(
+                        inputId = "use_target_references",
+                        label = "Different reference for each target",
+                        value = FALSE,
+                        fill = TRUE,
+                        status = "primary"
+                    ),
+                    helpText(
+                        "When enabled, select a target and then choose its reference. Turning this off makes the currently selected reference global and clears the per-target choices."
                     ),
                     hr(),
                     radioGroupButtons(
@@ -480,7 +490,6 @@ ui <- page_fillable(
                         card_header(
                             textOutput("stats_card_title", inline = TRUE)
                         ),
-                        uiOutput("stats_reference_validation"),
                         # Omnibus section (for ANCOVA, ANOVA, Mixed Effect, Kruskal-Wallis)
                         conditionalPanel(
                             condition = "output.has_omnibus_test",
@@ -750,6 +759,10 @@ server <- function(input, output, session) {
         selected_ct_target  = c(),
         targets_available   = c(),
         max_cycle           = 40,
+        # The global reference is reused by every target unless per-target mode is enabled.
+        global_reference_sample = NULL,
+        # Named character vector: target names map to their explicitly selected references.
+        target_reference_samples = character(),
         # Remember the last invalid reference context to avoid reopening the same modal.
         reference_prompt_key = NULL
     )
@@ -1698,136 +1711,386 @@ server <- function(input, output, session) {
     # Reference sample selection and average dCq -------------------------------
 
     reference_sample_status <- reactive({
-        req(dCq_rep_summary(), input$select_out_target)
-        dCq_rep_summary() |>
-            filter(Target == input$select_out_target) |>
+        req(dCq_rep_summary(), hk_sample_status(), input$select_out_target)
+
+        # Start from every expected sample/replicate, including runs removed
+        # from dCq_data() because their housekeeping gene was not detected.
+        expected_runs <- hk_sample_status() |>
+            transmute(
+                Sample = as.character(Sample),
+                across(any_of("Replicate")),
+                HK_valid
+            )
+
+        observed_target_runs <- dCq_rep_summary() |>
+            filter(as.character(Target) == input$select_out_target) |>
+            transmute(
+                Sample = as.character(Sample),
+                across(any_of("Replicate")),
+                dCq_mean,
+                dCq_censored
+            )
+
+        run_keys <- intersect(
+            c("Sample", "Replicate"),
+            intersect(names(expected_runs), names(observed_target_runs))
+        )
+
+        expected_runs |>
+            left_join(observed_target_runs, by = run_keys) |>
             group_by(Sample) |>
             summarize(
-                has_undetected = any(dCq_censored, na.rm = TRUE),
+                has_undetected = any(dCq_censored %in% TRUE),
+                has_failed_hk = any(!(HK_valid %in% TRUE)),
+                has_missing_target = any(HK_valid %in% TRUE & is.na(dCq_mean)),
+                reference_complete = !has_undetected &&
+                    !has_failed_hk && !has_missing_target,
                 .groups = "drop"
             )
     })
 
-    observeEvent(list(dCq_rep_summary(), input$select_out_target), {
+    # Leaving per-target mode promotes the reference currently visible in the
+    # selector to the global reference and discards every target override.
+    observeEvent(input$use_target_references, {
+        req(input$reference_sample)
+
+        if (!isTRUE(input$use_target_references)) {
+            cache$global_reference_sample <- input$reference_sample
+            cache$target_reference_samples <- character()
+            cache$reference_prompt_key <- NULL
+        }
+    }, ignoreInit = TRUE, priority = 100)
+
+    # Populate the reference selector and restore the cached global or
+    # target-specific selection whenever the target or reference mode changes.
+    observeEvent(list(
+        dCq_rep_summary(),
+        input$select_out_target,
+        input$use_target_references
+    ), {
         status <- reference_sample_status()
         req(nrow(status) >= 2)
 
         samples <- as.character(status$Sample)
-        labels <- ifelse(
-            status$has_undetected,
-            paste0(samples, " (contains undetected)"),
-            samples
+        labels <- case_when(
+            status$has_undetected &
+                (status$has_failed_hk | status$has_missing_target) ~
+                paste0(samples, " (undetected and missing replicates)"),
+            status$has_undetected ~
+                paste0(samples, " (contains undetected)"),
+            status$has_failed_hk | status$has_missing_target ~
+                paste0(samples, " (missing replicates)"),
+            .default = samples
         )
         choices <- stats::setNames(samples, labels)
-        current <- isolate(input$reference_sample)
+        samples_metadata <- hot_to_r(input$samples_tab)
+        ordered <- as.character(samples_metadata$New_Label)
+        first_available <- ordered[ordered %in% samples][1]
 
-        if (is.null(current) || !current %in% samples) {
-            samples_metadata <- hot_to_r(input$samples_tab)
-            ordered <- as.character(samples_metadata$New_Label)
-            selected <- ordered[ordered %in% samples][1]
-        } else {
-            selected <- current
+        global_reference <- isolate(cache$global_reference_sample)
+        if (is.null(global_reference) || !global_reference %in% samples) {
+            global_reference <- first_available
+            cache$global_reference_sample <- global_reference
         }
+
+        if (isTRUE(input$use_target_references)) {
+            target <- as.character(input$select_out_target)
+            target_references <- isolate(cache$target_reference_samples)
+            selected <- unname(target_references[target])
+            if (length(selected) == 0 || is.na(selected) || !selected %in% samples) {
+                selected <- global_reference
+                cache$target_reference_samples[target] <- selected
+            }
+        } else {
+            selected <- global_reference
+        }
+
         updateSelectInput(session, "reference_sample", choices = choices, selected = selected)
     })
 
-    reference_sample_valid <- reactive({
+    reference_sample_complete <- reactive({
         req(input$reference_sample, input$select_out_target)
         status <- reference_sample_status() |>
             filter(as.character(Sample) == input$reference_sample)
-        nrow(status) == 1 && !status$has_undetected
+        nrow(status) == 1 && status$reference_complete
     })
 
-    valid_reference_samples <- reactive({
+    complete_reference_samples <- reactive({
         reference_sample_status() |>
-            filter(!has_undetected) |>
+            filter(reference_complete) |>
             pull(Sample) |>
             as.character()
     })
-    
-    reference_sample_dCq <- reactive({
-        req(nrow(dCq_rep_summary()) > 0)
+
+    # Resolve one explicit reference for every included target. In per-target
+    # mode, targets without an override inherit the cached global reference.
+    reference_assignments <- reactive({
+        targets <- dCq_rep_summary() |>
+            pull(Target) |>
+            as.character() |>
+            unique()
+
+        global_reference <- cache$global_reference_sample %||% input$reference_sample
+        req(global_reference)
+
+        assigned_references <- rep(global_reference, length(targets))
+        if (isTRUE(input$use_target_references)) {
+            target_references <- cache$target_reference_samples[targets]
+            has_override <- !is.na(target_references) & nzchar(target_references)
+            assigned_references[has_override] <- unname(target_references[has_override])
+        }
+
+        tibble(
+            Target = targets,
+            Reference_Sample = assigned_references
+        )
+    })
+
+    # Render the current per-target assignments as a compact table. The active
+    # target is highlighted so the change that triggered the popup is clear.
+    reference_assignment_table <- function(assignments = reference_assignments()) {
+        rows <- lapply(seq_len(nrow(assignments)), function(index) {
+            target <- assignments$Target[index]
+            tags$tr(
+                class = if (identical(
+                    target, as.character(input$select_out_target)
+                )) "table-primary" else NULL,
+                tags$td(target),
+                tags$td(assignments$Reference_Sample[index])
+            )
+        })
+
+        div(
+            class = "table-responsive",
+            tags$table(
+                class = "table table-sm table-striped align-middle mb-0",
+                tags$thead(tags$tr(
+                    tags$th("Target"),
+                    tags$th("Reference sample")
+                )),
+                tags$tbody(rows)
+            )
+        )
+    }
+
+    show_reference_assignments <- function() {
+        showModal(modalDialog(
+            title = "Reference samples by target",
+            tags$p("Current per-target reference assignments:"),
+            reference_assignment_table(),
+            easyClose = TRUE,
+            footer = modalButton("Close")
+        ))
+    }
+
+    # Cache an explicit selector change. In per-target mode, show the complete
+    # assignment table only when the stored value for the active target really
+    # changed; restoring a cached value after switching targets stays silent.
+    observeEvent(input$reference_sample, {
         req(input$reference_sample)
-        
-        dCq_rep_summary() |>
-            filter(as.character(Sample) == input$reference_sample) |>
-            select(Target, any_of("Replicate"),
-                   ref_dCq_mean = dCq_mean,
-                   ref_dCq_censored = dCq_censored,
-                   ref_dCq_sd = dCq_sd,
-                   ref_dCq_se = dCq_se
+
+        if (isTRUE(input$use_target_references)) {
+            req(input$select_out_target)
+            target <- as.character(input$select_out_target)
+            previous_reference <- unname(cache$target_reference_samples[target])
+            assignment_changed <- length(previous_reference) == 0 ||
+                is.na(previous_reference) ||
+                !identical(previous_reference, input$reference_sample)
+
+            cache$target_reference_samples[target] <- input$reference_sample
+
+            selected_status <- reference_sample_status() |>
+                filter(as.character(Sample) == input$reference_sample)
+            selected_is_complete <- nrow(selected_status) == 1 &&
+                selected_status$reference_complete
+
+            # Incomplete selections use the recommendation modal below, which
+            # includes this same table and avoids opening two competing dialogs.
+            if (assignment_changed && selected_is_complete) {
+                show_reference_assignments()
+            }
+        } else {
+            cache$global_reference_sample <- input$reference_sample
+        }
+    }, ignoreInit = TRUE, priority = 100)
+
+    # Build one reference row for every expected biological replicate. A
+    # censored, missing, or HK-failed reference run has no usable dCq value, but
+    # the other runs for the same target remain available for normalization.
+    reference_sample_dCq <- reactive({
+        req(nrow(dCq_rep_summary()) > 0, hk_sample_status())
+
+        expected_reference_runs <- reference_assignments() |>
+            left_join(
+                hk_sample_status() |>
+                    transmute(
+                        Reference_Sample = as.character(Sample),
+                        across(any_of("Replicate")),
+                        HK_valid
+                    ),
+                by = "Reference_Sample",
+                relationship = "many-to-many"
+            )
+
+        reference_rows <- dCq_rep_summary() |>
+            transmute(
+                Target = as.character(Target),
+                Reference_Sample = as.character(Sample),
+                across(any_of("Replicate")),
+                dCq_mean,
+                dCq_censored,
+                dCq_sd,
+                dCq_se
+            )
+
+        reference_run_keys <- intersect(
+            c("Target", "Reference_Sample", "Replicate"),
+            intersect(names(expected_reference_runs), names(reference_rows))
+        )
+
+        expected_reference_runs |>
+            left_join(reference_rows, by = reference_run_keys) |>
+            group_by(Target, Reference_Sample) |>
+            mutate(
+                reference_value_available = HK_valid %in% TRUE &
+                    !is.na(dCq_mean) & !(dCq_censored %in% TRUE),
+                # Exported at target level: FALSE means at least one biological
+                # replicate could not use the assigned reference.
+                Reference_Valid = all(reference_value_available),
+                ref_dCq_mean = if_else(
+                    reference_value_available, dCq_mean, NA_real_
+                ),
+                # Missing/HK-failed runs are NA, not censored. This flag is
+                # TRUE only when the reference target itself was undetected.
+                ref_dCq_censored = coalesce(dCq_censored, FALSE),
+                ref_dCq_sd = if_else(
+                    reference_value_available, dCq_sd, NA_real_
+                ),
+                ref_dCq_se = if_else(
+                    reference_value_available, dCq_se, NA_real_
+                )
+            ) |>
+            ungroup() |>
+            select(
+                Target,
+                Reference_Sample,
+                Reference_Valid,
+                any_of("Replicate"),
+                ref_dCq_mean,
+                ref_dCq_censored,
+                ref_dCq_sd,
+                ref_dCq_se
             )
     })
-    # Allow ΔΔCq only when the selected reference is uncensored for this target.
-    
+
+    # Target-level validity remains internal; exports only need the selected
+    # reference name beside the corresponding ddCq result.
+    reference_target_status <- reactive({
+        reference_sample_dCq() |>
+            distinct(Target, Reference_Sample, Reference_Valid)
+    })
+    # Keep reference-dependent metrics selectable even when some reference
+    # runs are unavailable. Those runs become NA and are omitted downstream.
+
     observeEvent(list(input$select_out_target, input$reference_sample, reference_sample_status()), {
         req(input$select_out_target, input$reference_sample)
 
-        if (!reference_sample_valid()) {
-            # Auto-fallback if current selection is incompatible
-            current_metric <- input$out_metric
-            fallback <- switch(current_metric,
-                "ddCq"     = "dCq",
-                "exp_ddCq" = "exp_dCq",
-                NULL
-            )
-            updateRadioGroupButtons(
-                session,
-                "out_metric",
-                selected = fallback %||% current_metric,
-                disabledChoices = c("ddCq", "exp_ddCq")
-            )
-            # Update stats_metric (only dCq available)
-            updateRadioGroupButtons(
-                session,
-                "stats_metric",
-                selected = "dCq",
-                disabledChoices = c("ddCq", "exp_ddCq")
-            )
-        } else {
-            updateRadioGroupButtons(
-                session,
-                "out_metric",
-                disabledChoices = character(0)
-            )
-            updateRadioGroupButtons(
-                session,
-                "stats_metric",
-                disabledChoices = character(0)
-            )
-        }
+        updateRadioGroupButtons(
+            session,
+            "out_metric",
+            disabledChoices = character(0)
+        )
+        updateRadioGroupButtons(
+            session,
+            "stats_metric",
+            disabledChoices = character(0)
+        )
     })
 
-    # Prompt for another reference when an analysis that requires an uncensored
-    # reference (ΔΔCq or ANCOVA) is requested.
+    # Recommend a complete reference as soon as an incomplete one is selected,
+    # while still allowing the user to keep it. Only unavailable biological
+    # replicates will then be excluded from reference-dependent analyses.
     observeEvent(
-        list(input$out_metric, input$stats_metric, input$stats_test,
-             input$reference_sample, input$select_out_target,
+        list(input$reference_sample, input$select_out_target,
+             input$use_target_references,
              reference_sample_status()),
         {
             req(input$reference_sample, input$select_out_target)
-            needs_reference <- isTRUE(input$out_metric %in% c("ddCq", "exp_ddCq")) ||
-                isTRUE(input$stats_metric %in% c("ddCq", "exp_ddCq")) ||
-                isTRUE(input$stats_test %in% c("ancova", "ancova_2_sample"))
-            req(needs_reference, !reference_sample_valid())
+
+            # Wait until the selector and cache agree. This avoids prompting
+            # for the previous target's reference while a cached selection is
+            # being restored after a target switch.
+            active_cached_reference <- if (isTRUE(input$use_target_references)) {
+                unname(cache$target_reference_samples[
+                    as.character(input$select_out_target)
+                ])
+            } else {
+                cache$global_reference_sample
+            }
+            req(
+                length(active_cached_reference) == 1,
+                !is.na(active_cached_reference),
+                identical(
+                    as.character(input$reference_sample),
+                    as.character(active_cached_reference)
+                )
+            )
+            req(!reference_sample_complete())
 
             prompt_key <- paste(
                 input$select_out_target,
                 input$reference_sample,
-                input$out_metric %||% "",
-                input$stats_metric %||% "",
-                input$stats_test %||% "",
+                if (isTRUE(input$use_target_references)) "per-target" else "global",
                 sep = "::"
             )
 
             # do not prompt again if the same reference has already been prompted for this target
             req(!identical(cache$reference_prompt_key, prompt_key))
             cache$reference_prompt_key <- prompt_key
-            alternatives <- setdiff(valid_reference_samples(), input$reference_sample)
+            alternatives <- setdiff(
+                complete_reference_samples(), input$reference_sample
+            )
+
+            selected_status <- reference_sample_status() |>
+                filter(as.character(Sample) == input$reference_sample)
+            issue <- case_when(
+                selected_status$has_undetected &&
+                    (selected_status$has_failed_hk |
+                        selected_status$has_missing_target) ~
+                    "has undetected target values and missing biological replicates",
+                selected_status$has_undetected ~
+                    "has undetected target values in one or more biological replicates",
+                selected_status$has_failed_hk ~
+                    "has one or more biological replicates with an undetected housekeeping gene",
+                .default =
+                    "is missing target values in one or more biological replicates"
+            )
+
+            consequence <- glue(
+                "If you keep it, affected replicates will have invalid ΔΔCq values and will be excluded from ΔΔCq analyses and ANCOVA for {input$select_out_target}."
+            )
+
+            assignment_summary <- if (isTRUE(input$use_target_references)) {
+                tagList(
+                    tags$hr(),
+                    tags$p(tags$strong("Current per-target reference assignments:")),
+                    reference_assignment_table()
+                )
+            }
 
             body <- if (length(alternatives) > 0) {
+                reference_scope <- if (isTRUE(input$use_target_references)) {
+                    glue("This changes the cached reference only for {input$select_out_target}.")
+                } else {
+                    "This changes the global reference used by every target, analysis, and export."
+                }
                 tagList(
-                    tags$p(glue("'{input$reference_sample}' contains one or more undetected values contributing to {input$select_out_target}. Choose an uncensored reference for ΔΔCq or ANCOVA.")),
+                    tags$p(glue(
+                        "'{input$reference_sample}' {issue} for {input$select_out_target}. We recommend switching to a complete reference sample."
+                    )),
+                    tags$p(consequence),
+                    tags$p(class = "text-muted", reference_scope),
+                    assignment_summary,
                     selectInput(
                         "reference_sample_modal",
                         "New reference sample",
@@ -1836,17 +2099,30 @@ server <- function(input, output, session) {
                     )
                 )
             } else {
-                tags$p(glue("No sample is fully detected for {input$select_out_target}. ΔΔCq and ANCOVA are unavailable for this target; ΔCq analyses remain available."))
+                tagList(
+                    tags$p(glue(
+                        "'{input$reference_sample}' {issue} for {input$select_out_target}. No complete alternative reference is available."
+                    )),
+                    tags$p(consequence),
+                    assignment_summary
+                )
             }
 
             showModal(modalDialog(
-                title = "Choose a different reference sample",
+                title = "Incomplete reference sample",
                 body,
                 easyClose = TRUE,
                 footer = if (length(alternatives) > 0) {
-                    tagList(modalButton("Cancel"), actionButton("confirm_reference_sample", "Use reference", class = "btn-primary"))
+                    tagList(
+                        modalButton("Keep current reference"),
+                        actionButton(
+                            "confirm_reference_sample",
+                            "Switch reference",
+                            class = "btn-primary"
+                        )
+                    )
                 } else {
-                    modalButton("OK")
+                    modalButton("Keep current reference")
                 }
             ))
         },
@@ -1855,7 +2131,8 @@ server <- function(input, output, session) {
 
     observeEvent(input$confirm_reference_sample, {
         req(input$reference_sample_modal)
-        updateSelectInput(session, "reference_sample", selected = input$reference_sample_modal)
+        selected_reference <- input$reference_sample_modal
+        updateSelectInput(session, "reference_sample", selected = selected_reference)
         cache$reference_prompt_key <- NULL
         removeModal()
     })
@@ -1864,24 +2141,56 @@ server <- function(input, output, session) {
     
     ddCq_data <- reactive({
         req(reference_sample_dCq())
-        
-        dCq_data() |>
-            left_join(reference_sample_dCq()) |>
+
+        data <- dCq_data() |>
+            mutate(Target = as.character(Target)) |>
+            left_join(reference_assignments(), by = "Target") |>
+            left_join(
+                reference_target_status() |>
+                    select(Target, Reference_Sample, Reference_Valid),
+                by = c("Target", "Reference_Sample")
+            )
+        reference_join_cols <- intersect(
+            c("Target", "Reference_Sample", "Replicate"),
+            names(data)
+        )
+
+        data |>
+            left_join(
+                reference_sample_dCq() |> select(-Reference_Valid),
+                by = reference_join_cols
+            ) |>
             mutate(
                 ddCq = dCq - ref_dCq_mean,
-                ddCq_censored = dCq_censored | ref_dCq_censored,
+                ddCq_censored = dCq_censored | coalesce(ref_dCq_censored, FALSE),
                 exp_ddCq = 2^-ddCq
             )
     })
     
     ddCq_rep_summary <- reactive({
         req(reference_sample_dCq())
-        
-        dCq_rep_summary() |>
-            left_join(reference_sample_dCq()) |>
+
+        data <- dCq_rep_summary() |>
+            mutate(Target = as.character(Target)) |>
+            left_join(reference_assignments(), by = "Target") |>
+            left_join(
+                reference_target_status() |>
+                    select(Target, Reference_Sample, Reference_Valid),
+                by = c("Target", "Reference_Sample")
+            )
+        reference_join_cols <- intersect(
+            c("Target", "Reference_Sample", "Replicate"),
+            names(data)
+        )
+
+        data |>
+            left_join(
+                reference_sample_dCq() |> select(-Reference_Valid),
+                by = reference_join_cols
+            ) |>
             mutate(
                 ddCq_mean = dCq_mean - ref_dCq_mean,
-                ddCq_censored = dCq_censored | ref_dCq_censored,
+                ddCq_censored = dCq_censored | coalesce(ref_dCq_censored, FALSE),
                 exp_ddCq_mean = 2^-ddCq_mean,
                 ddCq_sd = ifelse(input$propagate_var,
                                  # propagate control SD
@@ -1909,7 +2218,9 @@ server <- function(input, output, session) {
         req(n_bio_reps() > 1)
         
         ddCq_rep_summary() |>
-            group_by(across(c("Sample", "Target"))) |>
+            group_by(across(c(
+                "Sample", "Target", "Reference_Sample", "Reference_Valid"
+            ))) |>
             summarize(
                 ddCq_n    = count_non_missing(ddCq_mean),
                 ddCq_censored_n = sum(ddCq_censored, na.rm = TRUE),
@@ -2199,36 +2510,6 @@ server <- function(input, output, session) {
         posthoc
     })
 
-    # Return one user-facing message when the selected analysis requires a
-    # fully detected reference sample. Statistical outputs stop silently and
-    # this message is rendered once at the top of the results card.
-    stats_reference_validation_message <- reactive({
-        req(input$stats_metric, input$stats_test)
-
-        if (input$stats_metric == "dCq" &&
-            input$stats_test %in% c("ancova", "ancova_2_sample") &&
-            !reference_sample_valid()) {
-            return("Choose a reference sample without undetected values before running ANCOVA.")
-        }
-
-        if (input$stats_metric != "dCq" && !reference_sample_valid()) {
-            return("Choose a reference sample without undetected values before testing ΔΔCq.")
-        }
-
-        NULL
-    })
-
-    output$stats_reference_validation <- renderUI({
-        message <- stats_reference_validation_message()
-        req(!is.null(message))
-
-        div(
-            class = "alert alert-warning py-2 px-3 mb-3 d-flex align-items-center gap-2",
-            bs_icon("exclamation-triangle"),
-            tags$span(message)
-        )
-    })
-    
     # Reactive: Run Statistical Test -------------------------------------------
     
     stats_result <- reactive({
@@ -2253,8 +2534,6 @@ server <- function(input, output, session) {
                            "kruskal", "repeated_mann_whitney", "mann_whitney")
         valid_tests   <- if (response == "dCq") dCq_tests else non_dCq_tests
         req(test %in% valid_tests)
-        req(is.null(stats_reference_validation_message()))
-        
         equal_var  <- !isTRUE(input$stats_unequal_variance)
         comparison <- input$stats_comparison
         p_adjust   <- input$stats_multiple_comparison_adjust
@@ -2879,12 +3158,19 @@ server <- function(input, output, session) {
 
         hk_metrics <- names(df)[grepl("^HK_mean_.+_Cq$", names(df)) & names(df) != "HK_mean_Cq"]
 
-        metrics <- c("Cq", "HK_mean_Cq", hk_metrics, "dCq", "exp_dCq",
-                     "ref_mean_dCq", "ddCq", "exp_ddCq")
+        pre_ddCq_metrics <- c(
+            "Cq", "HK_mean_Cq", hk_metrics, "dCq", "exp_dCq",
+            "ref_mean_dCq"
+        )
+        ddCq_metrics <- c("ddCq", "exp_ddCq")
+        metrics <- c(pre_ddCq_metrics, ddCq_metrics)
+
         df |>
             finalize_export_metrics(metrics) |>
             select(any_of("Replicate"), Sample, Target,
-                   any_of(metric_export_names(metrics)))
+                   any_of(metric_export_names(pre_ddCq_metrics)),
+                   Reference_Sample,
+                   any_of(metric_export_names(ddCq_metrics)))
     })
     
     export_bio_rep <- reactive({
@@ -2900,12 +3186,17 @@ server <- function(input, output, session) {
         # Include individual HK gene average columns (HK_mean_<gene>_Cq) if present
         hk_indiv_cols <- names(df)[grepl("^HK_mean_.+_Cq$", names(df)) & names(df) != "HK_mean_Cq"]
         
-        metrics <- c("Cq_mean", "HK_mean_Cq", hk_indiv_cols,
-                     "dCq_mean", "exp_dCq_mean", "ref_mean_dCq",
-                     "ddCq_mean", "exp_ddCq_mean")
+        pre_ddCq_metrics <- c(
+            "Cq_mean", "HK_mean_Cq", hk_indiv_cols,
+            "dCq_mean", "exp_dCq_mean", "ref_mean_dCq"
+        )
+        ddCq_metrics <- c("ddCq_mean", "exp_ddCq_mean")
+        metrics <- c(pre_ddCq_metrics, ddCq_metrics)
         base_cols <- c("Replicate", "Sample", "Target",
                        "Cq_n", "Cq_detected_n", "Cq_censored_n",
-                       metric_export_names(metrics))
+                       metric_export_names(pre_ddCq_metrics),
+                       "Reference_Sample",
+                       metric_export_names(ddCq_metrics))
         
         # Only include dispersion when single replicate (or no Replicate column)
         # and user has error bars enabled
@@ -2933,13 +3224,20 @@ server <- function(input, output, session) {
             mutate(across(where(is.integer), as.integer)) |>
             select(-matches("^(dCq|ddCq)_(sd|se)_(low|high)$"))
 
-        metrics <- c("dCq_mean", "exp_dCq_mean", "ddCq_mean", "exp_ddCq_mean")
+        dCq_metrics <- c("dCq_mean", "exp_dCq_mean")
+        ddCq_metrics <- c("ddCq_mean", "exp_ddCq_mean")
+        metrics <- c(dCq_metrics, ddCq_metrics)
+
         df |>
             finalize_export_metrics(metrics) |>
-            select(Sample, Target, any_of(c("dCq_n", "dCq_censored_n")),
-                   any_of(metric_export_names(metrics)),
+            select(Sample, Target,
+                   any_of(c("dCq_n", "dCq_censored_n")),
+                   any_of(metric_export_names(dCq_metrics)),
+                   any_of(c("dCq_sd", "dCq_se")),
+                   Reference_Sample,
                    any_of(c("ddCq_n", "ddCq_censored_n")),
-                   any_of(c("dCq_sd", "dCq_se", "ddCq_sd", "ddCq_se")))
+                   any_of(metric_export_names(ddCq_metrics)),
+                   any_of(c("ddCq_sd", "ddCq_se")))
     })
     
     # Data Preview Tables ======================================================
@@ -2953,7 +3251,7 @@ server <- function(input, output, session) {
                 class = "compact stripe"
             )
     })
-    
+
     output$preview_technical <- DT::renderDataTable({
         df <- export_technical()
         df |>
@@ -3042,7 +3340,7 @@ server <- function(input, output, session) {
             # Sheet 1: Raw Cq data
             addWorksheet(wb, "Raw Cq")
             writeData(wb, "Raw Cq", export_raw_cq())
-            
+
             # Sheet 2: Technical Replicates
             addWorksheet(wb, "Technical Replicates")
             writeData(wb, "Technical Replicates", export_technical())
