@@ -1,17 +1,17 @@
-get_Cq_y_limits <- function(x, min_range = 3, margin = c(0, 0), undetected_value = 40) {
+get_Cq_y_limits <- function(x, min_range = 3, margin = c(0, 0),
+                            undetected_value = 40, undetected_present = FALSE) {
     
     # remove NA
     x <- x[!is.na(x)]
     
-    undetected_present <- any(!is.finite(x))
-    
     # return fixed range if all values are undetected
-    if (all(!is.finite(x))) {
+    if (length(x) == 0) {
         return(c(undetected_value - 6, undetected_value))
     }
 
-    # remove infinite values
-    x <- x[is.finite(x)]
+    if (undetected_present && all(dplyr::near(x, undetected_value))) {
+        return(c(undetected_value - 6, undetected_value))
+    }
     
     y_min <- floor(min(x))
     y_max <- ceiling(max(x))
@@ -41,22 +41,8 @@ get_y_limits <- function(values, metric = c("dCq"), undetected_value = 40) {
     
     if (metric %in% c("dCq", "ddCq")) {
         
-        finite_values <- values[is.finite(values)]
-        
-        if(all(!is.finite(values))) {
-            # all undetected
-            y_min <- -undetected_value
-            y_max <- -(undetected_value - 6)
-            
-        } else if (any(!is.finite(values))) {
-            # some undetected
-            y_min <- floor(min(-finite_values) - 2)
-            y_max <- max(-finite_values)
-        } else {
-            # no undetected
-            y_min <- floor(min(-values))
-            y_max <- ceiling(max(-values))
-        }
+        y_min <- floor(min(-values))
+        y_max <- ceiling(max(-values))
         
     } else { # 2^-d(d)Cq
         # allways start at 0
@@ -73,4 +59,3 @@ get_y_limits <- function(values, metric = c("dCq"), undetected_value = 40) {
     
     return(c(y_min, y_max))
 }
-

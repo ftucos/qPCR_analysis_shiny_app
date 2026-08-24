@@ -38,11 +38,11 @@ drop_empty <- function(x) {
 }
 
 source("R/parse_Cq.R")
+source("R/censoring.R")
 source("R/get_y_limits.R")
 source("R/fix_plotly_legend.R")
 source("R/is_HK.R")
-source("R/handle_undetected_stats.R")
-source("R/squish_infinite_to_val.R")
+source("R/missing_value_stats.R")
 source("R/statistical_tests.R")
 source("R/adjust_signif_position.R")
 source("R/build_result_plots.R")
@@ -83,7 +83,41 @@ ui <- page_fillable(
                     hr(),
                     tags$h6(tags$strong("Targets")),
                     helpText("Edit 'New Label' to rename targets. Drag the row number to reorder them. Uncheck 'Include' to exclude targets from analysis."),
-                    rHandsontableOutput("targets_tab")
+                    rHandsontableOutput("targets_tab"),
+                    hr(),
+                    div(
+                        class = "d-flex align-items-end gap-2",
+                        numericInput(
+                            "max_cycle",
+                            label = "Undetected replacement cycle",
+                            value = 40,
+                            min = 1,
+                            step = 1,
+                            width = "220px"
+                        ),
+                        div(
+                            class = "pb-2",
+                            tooltip(
+                                bs_icon("info-circle"),
+                                tags$span(
+                                    "Replacing non-detects with a maximum-cycle value can produce biased estimates.",
+                                    tags$br(), tags$br(),
+                                    tags$strong("Reference: "),
+                                    "McCall, Matthew N et al. ‘On non-detects in qPCR data.’ ",
+                                    tags$em("Bioinformatics (Oxford, England)"),
+                                    " 30.16 (2014): 2310–2316. ",
+                                    tags$a(
+                                        "doi:10.1093/bioinformatics/btu239",
+                                        href = "https://doi.org/10.1093/bioinformatics/btu239",
+                                        target = "_blank",
+                                        rel = "noopener noreferrer"
+                                    )
+                                ),
+                                placement = "right"
+                            )
+                        )
+                    ),
+                    helpText("Undetected Cq values are replaced numerically with this cycle.")
                 ),
                 
                 # Main content area
@@ -164,6 +198,11 @@ ui <- page_fillable(
                         "select_out_target",
                         "Select Target to visualize",
                         choices = NULL # popolate dinamically
+                    ),
+                    selectInput(
+                        "reference_sample",
+                        "Reference sample (ΔΔCq / ANCOVA)",
+                        choices = NULL
                     ),
                     hr(),
                     radioGroupButtons(
@@ -338,7 +377,7 @@ ui <- page_fillable(
                             )
                         ),
                         
-                        # Handle unequal variance toggle (for mixed effect model)
+                        # Handle unequal variance for tests that support it.
                         conditionalPanel(
                             condition = "output.show_unequal_variance_toggle",
                             div(
@@ -350,9 +389,9 @@ ui <- page_fillable(
                                     status  = "primary",
                                     value   = FALSE
                                 ),
-                                # Tip shown only for pairwise t-test
+                                # Explain the fixed-reference special case for independent t-tests.
                                 conditionalPanel(
-                                    condition = "input.stats_test == 'repeated_ttest'",
+                                    condition = "input.stats_test == 'repeated_ttest' || input.stats_test == 'ttest'",
                                     tooltip(
                                         bs_icon("info-circle"),
                                         "When enabled (Welch's t-test), 
@@ -374,7 +413,7 @@ ui <- page_fillable(
                                     label     = "Multiple comparisons:",
                                     choices   = c(
                                         "Pairwise" = "pairwise",
-                                        "All vs Control" = "trt.vs.ctrl"
+                                        "All vs Reference" = "trt.vs.ctrl"
                                     ),
                                     selected  = "pairwise",
                                     justified = TRUE,
@@ -430,6 +469,8 @@ ui <- page_fillable(
                     full_screen = TRUE,
                     fillable = TRUE,
                     card_header(textOutput("res_plot_title", inline = TRUE)),
+                    uiOutput("failed_hk_sample_warning"),
+                    uiOutput("all_undetected_comparison_warning"),
                     plotlyOutput("res_plot", height = "100%")
                 ),
                 # Statistical Results Card (only shown when stats panel is active)
@@ -439,7 +480,7 @@ ui <- page_fillable(
                         card_header(
                             textOutput("stats_card_title", inline = TRUE)
                         ),
-                        # Warning for dropped Inf values
+                        # Warning when max cycle replacement values are included in statistics
                         conditionalPanel(
                             condition = "output.stats_dropped_count > 0",
                             div(
@@ -691,9 +732,10 @@ server <- function(input, output, session) {
     # Cache (reactiveValues) ---------------------------------------------------
     
     cache <- reactiveValues(
-        # raw data, required to add/remove replicate column
+        # Server-side backing data used to initialize or replace the raw table.
+        # Live user edits remain in input$raw_data until a server update is needed.
         raw_data = empty_raw_data,
-        
+
         # sample control table (rename, reorder, exclude)
         # samples rename, reordering and exclusion should be retrieved from input$samples_tab
         samples_tab = data.frame(
@@ -702,7 +744,7 @@ server <- function(input, output, session) {
             Include   = logical(),
             stringsAsFactors = FALSE
         ),
-        
+
         # target control table (rename, reorder, exclude)
         # targets rename, reordering and exclusion should be retrieved from input$targets_tab
         targets_tab = data.frame(
@@ -715,8 +757,83 @@ server <- function(input, output, session) {
         # list of excluded points
         excluded_point_keys = c(),
         selected_ct_target  = c(),
-        targets_available   = c()
+        targets_available   = c(),
+        max_cycle           = 40,
+        # Remember the last invalid reference context to avoid reopening the same modal.
+        reference_prompt_key = NULL
     )
+
+    # Prefer the live browser state, falling back to the cached raw data
+    # while the widget is initializing.
+    current_raw_data <- reactive({
+        if (!is.null(input$raw_data)) {
+            return(hot_to_r(input$raw_data))
+        }
+
+        cache$raw_data
+    })
+
+    # If pasted data exceed the configured max cycle, raise the replacement to the
+    # first integer above the largest detected Cq.
+    max_cycle_value <- reactive({
+        requested <- validate_max_cycle(input$max_cycle) %||%
+            validate_max_cycle(cache$max_cycle) %||%
+            40
+
+        raw_data <- current_raw_data()
+
+        if (is.null(raw_data) || !"Cq" %in% names(raw_data)) {
+            return(requested)
+        }
+
+        parsed_cq <- parse_Cq(raw_data$Cq)
+
+        next_integer_above(
+            parsed_cq$Cq,
+            minimum = requested,
+            censored = parsed_cq$Cq_censored
+        )
+    })
+
+    observeEvent(list(input$max_cycle, input$raw_data), {
+        replacement <- max_cycle_value()
+        old_value <- suppressWarnings(as.numeric(input$max_cycle))
+        cache$max_cycle <- replacement
+
+        # Update the max_cycle input if the input is invalid or raw_data exceeds the requested max cycle.
+        if (length(old_value) == 0 || is.na(old_value) || !isTRUE(all.equal(old_value, replacement))) {
+            updateNumericInput(session, "max_cycle", value = replacement)
+            if (length(old_value) == 1 && is.finite(old_value) && replacement > old_value) {
+                showNotification(
+                    glue("Undetected replacement increased to {replacement}, the first integer above the largest detected Cq."),
+                    type = "message",
+                    duration = 6
+                )
+            }
+        }
+
+        # Store every censored value using the normalized ">cycle" display form
+        # so the table and downstream exports show the same threshold.
+        if (!is.null(input$raw_data)) {
+            current_data <- current_raw_data()
+            parsed_cq <- parse_Cq(current_data$Cq)
+            censored_rows <- parsed_cq$Cq_censored
+            censored_cq_value <- paste0(">", format_qpcr_number(replacement))
+
+            # Update the backing data only when its displayed values changed.
+            # This intentionally re-renders the table without doing so on every edit.
+            if (any(censored_rows) && any(as.character(current_data$Cq[censored_rows]) != censored_cq_value)) {
+                cache$raw_data <- current_data |>
+                    mutate(
+                        Cq = if_else(
+                            censored_rows,
+                            censored_cq_value,
+                            as.character(Cq)
+                        )
+                    )
+            }
+        }
+    }, ignoreInit = TRUE)
     # Observer: Toggle biological replicates column ----------------------------
     
     observeEvent(input$include_replicates, {
@@ -724,7 +841,7 @@ server <- function(input, output, session) {
             return()
         }
         
-        current_data <- hot_to_r(input$raw_data)
+        current_data <- current_raw_data()
         
         if (input$include_replicates) {
             # add replicate column if missing
@@ -783,12 +900,12 @@ server <- function(input, output, session) {
     outputOptions(output, "raw_data", suspendWhenHidden = FALSE)
     
     # Observer: on raw data edit: ----------------------------------------------
-    # 1. cache last `raw_data` and validate Cq values
+    # 1. validate Cq values and push conversions back to the cached `raw_data`
     # 2. update `cache$samples_tab` when samples change in raw_data while preserving previous edits
     
     observeEvent(input$raw_data, {
         # 1. validate Cq values ------------------------------------------------
-        current_data <- hot_to_r(input$raw_data)
+        current_data <- current_raw_data()
         
         original_cq <- current_data$Cq |>
             as.character() |>
@@ -797,24 +914,41 @@ server <- function(input, output, session) {
             # ignore trailing 0 in decimals
             str_remove("(?<=[0-9]\\.[0-9]{0,10})0+$")
         
-        parsed_cq <- parse_Cq(original_cq) |> replace_na("")
-        
+        parsed_cq <- parse_Cq(original_cq)
+        replacement <- max_cycle_value()
+        normalized_cq <- ifelse(
+            parsed_cq$Cq_censored,
+            paste0(">", format_qpcr_number(replacement)),
+            ifelse(
+                is.na(parsed_cq$Cq),
+                "",
+                format_qpcr_number(parsed_cq$Cq, digits = 10)
+            )
+        )
+
         # Find values that changed
-        changed_mask <- original_cq != parsed_cq
-        
+        changed_mask <- original_cq != normalized_cq
+
+        # Equivalent numeric spellings are normalized silently. Only surface
+        # semantic conversions (for example, "Undetermined" to ">40").
+        meaningful_change <- meaningful_cq_conversion(
+            original = original_cq,
+            parsed_numeric = parsed_cq$Cq,
+            censored = parsed_cq$Cq_censored,
+            normalized_cq = normalized_cq
+        )
+
         conversions <- map2_chr(
-            original_cq[changed_mask], parsed_cq[changed_mask],
+            original_cq[meaningful_change], normalized_cq[meaningful_change],
             ~ paste0(.x, " → ", .y)
         ) |>
             unique()
         
-        # Update parsed Cq values
-        current_data$Cq <- parsed_cq
-        
-        # Cache updated raw data
-        # Only update if the validation actually changed something to prevent re-rendering on every keystroke
+        # Push normalized values back only when validation changed something;
+        # updating the backing data on every keystroke would re-render the table.
         if (any(changed_mask)) {
-            cache$raw_data <- current_data
+            cache$raw_data <- current_data |>
+                mutate(Cq = normalized_cq)
         }
         
         # Show warning modal if any conversions happened
@@ -835,7 +969,7 @@ server <- function(input, output, session) {
         # 2. cache last state of samples_tab -----------------------------------
         cache$samples_tab <- hot_to_r(input$samples_tab)
         
-        current_samples <- hot_to_r(input$raw_data)$Sample |>
+        current_samples <- current_data$Sample |>
             unique() |>
             drop_empty()
         
@@ -872,7 +1006,7 @@ server <- function(input, output, session) {
             cache$targets_tab <- hot_to_r(input$targets_tab)
         }
         
-        current_targets <- hot_to_r(input$raw_data)$Target |>
+        current_targets <- current_data$Target |>
             unique() |>
             drop_empty()
         
@@ -936,14 +1070,27 @@ server <- function(input, output, session) {
     # Derived Reactive: Processed data (with parsed Cq, sample/target renames, ordering and exclusions) ----
     
     cq_data <- reactive({
-        req(hot_to_r(input$raw_data))
+        raw_data <- current_raw_data()
+        req(raw_data)
         req(nrow(hot_to_r(input$samples_tab)) > 0)
         req(!is.null(input$targets_tab), nrow(hot_to_r(input$targets_tab)) > 0)
         
         samples_metadata <- hot_to_r(input$samples_tab)
         targets_metadata <- hot_to_r(input$targets_tab)
-        
-        hot_to_r(input$raw_data) |>
+
+        raw_data |>
+            # Parse values and censoring status together, then apply the numeric replacement.
+            # In Raw data, censored values are stored as ">{max_cycle}" strings, but in the processed data they are replaced with the numeric replacement value.
+            # The ">{max_cycle}" strings are preserved in the `Cq_display` column for table display and export.
+            parse_Cq_data() |>
+            mutate(
+                Cq = replace_censored(
+                    Cq,
+                    censored = Cq_censored,
+                    replacement = max_cycle_value()
+                ),
+                Cq_display = format_censored_value(Cq, Cq_censored)
+            ) |>
             mutate(Key = row_number()) |> # add unique Key ID matching raw data rows
             relocate(Key, .before = 1) |>
             # join with sample metadata for renaming, reordering and exclusion
@@ -962,21 +1109,10 @@ server <- function(input, output, session) {
             )) |>
             select(-New_Label, -Include) |>
             arrange(Sample) |>
-            mutate(Cq = parse_Cq(Cq) |> as.numeric()) |>
             # mark excluded points
             mutate(
-                Keep = !Key %in% cache$excluded_point_keys,
-                Undetected = !is.finite(Cq)
+                Keep = !Key %in% cache$excluded_point_keys
             )
-    })
-    # Derived Reactive: Dynamic Cq max for undetected visualization ------------
-    # Rounds up to the nearest 5, minimum 40 (e.g. 40, 45, 50, 55…)
-    
-    cq_undetected_value <- reactive({
-        req(cq_data())
-        finite_cqs <- cq_data()$Cq[is.finite(cq_data()$Cq)]
-        if (length(finite_cqs) == 0) return(40)
-        max(40, ceiling(max(finite_cqs) / 5) * 5)
     })
     # Observer: Update target selector choices ---------------------------------
     
@@ -992,7 +1128,7 @@ server <- function(input, output, session) {
         req(!identical(targets, cache$targets_available))
         
         # restore previous selection if possible
-        if (cache$selected_ct_target %in% targets) {
+        if (length(cache$selected_ct_target) == 1 && cache$selected_ct_target %in% targets) {
             selected <- cache$selected_ct_target
         } else {
             selected <- targets[1]
@@ -1025,7 +1161,7 @@ server <- function(input, output, session) {
             filter(Target == input$select_ct_target) |>
             mutate(
                 Keep_label = ifelse(Keep, "Included", "Excluded"),
-                point_type_label = ifelse(Undetected, "Undetected", "Detected"),
+                point_type_label = ifelse(Cq_censored, "Undetected", "Detected"),
             )
         
         n_samples <- df_target$Sample |>
@@ -1034,18 +1170,28 @@ server <- function(input, output, session) {
         
         df_summary_target <- df_target |>
             filter(Keep) |>
+            retain_detected_or_all_censored() |>
             group_by(across(
                 c("Sample", "Target", any_of("Replicate"))
             )) |>
             summarize(
-                mean = mean_handle_inf(Cq),
+                mean = mean(Cq),
+                mean_censored = all(Cq_censored),
+                mean_display = format_censored_value(mean, mean_censored),
                 point_type_label = "Mean",
                 Keep_label = NA # initialize empty keep_label to avoid duplication of the legend in ggplotly
             )
         
+        # Reuse the same replacement cycle for limits, shading, and labels.
+        replacement_cycle <- max_cycle_value()
+
         # force a minumum of y-axis range of 3 units
-        uv <- cq_undetected_value()
-        y_limits <- get_Cq_y_limits(df_target$Cq, min_range = 3, undetected_value = uv)
+        y_limits <- get_Cq_y_limits(
+            df_target$Cq,
+            min_range = 3,
+            undetected_value = replacement_cycle,
+            undetected_present = any(df_target$Cq_censored, na.rm = TRUE)
+        )
         
         # Pre-compute hover text
         has_replicate <- "Replicate" %in% names(df_target)
@@ -1055,14 +1201,14 @@ server <- function(input, output, session) {
                 glue(
                     "{Sample} ({Replicate})
                     Target: {Target}
-                    Cq: {round(Cq, 2)}
+                    Cq: {Cq_display}
                     {ifelse(Keep, '', '(excluded)')}"
                 )
             } else {
                 glue(
                     "{Sample}
                     Target: {Target}
-                    Cq: {round(Cq, 2)}
+                    Cq: {Cq_display}
                     {ifelse(Keep, '', '(excluded)')}"
                 )
             })
@@ -1072,13 +1218,13 @@ server <- function(input, output, session) {
                 glue(
                     "{Sample} ({Replicate})
                     Target: {Target}
-                    Mean Cq: {round(mean, 2)}"
+                    Mean Cq: {mean_display}"
                 )
             } else {
                 glue(
                     "{Sample}
                     Target: {Target}
-                    Mean Cq: {round(mean, 2)}"
+                    Mean Cq: {mean_display}"
                 )
             })
         
@@ -1093,7 +1239,7 @@ server <- function(input, output, session) {
                 key = Key
             )
         ) +
-            annotate("rect", xmin = 0.5, xmax = n_samples + 0.5, ymin = uv - 5, ymax = uv, alpha = 0.6, fill = "#EBEBEB") +
+            annotate("rect", xmin = 0.5, xmax = n_samples + 0.5, ymin = replacement_cycle - 5, ymax = replacement_cycle, alpha = 0.6, fill = "#EBEBEB") +
             geom_beeswarm(method = "compactswarm", preserve.data.axis = TRUE) +
             geom_point(
                 data = df_summary_target,
@@ -1128,9 +1274,12 @@ server <- function(input, output, session) {
             coord_cartesian(ylim = y_limits) +
             scale_y_continuous(
                 expand = expansion(mult = 0.05, add = 0),
-                labels = function(x) ifelse(x == uv, paste0("≥", uv), x), # label for undetected
-                # add extra distance to squish to separate from other points
-                oob = function(x, range) squish_infinite_to_val(x, range, to_value = uv)
+                labels = function(x) ifelse(
+                    x == replacement_cycle,
+                    paste0(">", replacement_cycle),
+                    x
+                ),
+                oob = scales::oob_keep
             ) +
             scale_x_discrete(expand = 0) +
             theme_minimal(base_size = 14) +
@@ -1168,37 +1317,95 @@ server <- function(input, output, session) {
             cache$excluded_point_keys <- append(clicked_key, cache$excluded_point_keys)
         }
     })
+    # Derived Reactive: housekeeping-gene status per biological sample --------
+
+    hk_sample_status <- reactive({
+        data <- cq_data()
+        req(data, nrow(data) > 0, length(input$hk_genes) > 0)
+
+        all_samples <- data |>
+            filter(Keep) |>
+            distinct(across(any_of(c("Sample", "Replicate"))))
+
+        detected_hk_by_sample <- data |>
+            filter(Keep, Target %in% input$hk_genes) |>
+            group_by(across(any_of(c("Sample", "Target", "Replicate")))) |>
+            summarize(
+                HK_detected = any(!is.na(Cq) & !Cq_censored),
+                .groups = "drop"
+            ) |>
+            group_by(across(any_of(c("Sample", "Replicate")))) |>
+            summarize(
+                n_detected_HK_genes = sum(HK_detected),
+                .groups = "drop"
+            )
+
+        all_samples |>
+            left_join(detected_hk_by_sample) |>
+            mutate(
+                n_detected_HK_genes = coalesce(n_detected_HK_genes, 0),
+                HK_valid = n_detected_HK_genes == length(input$hk_genes)
+            )
+    })
+
+    failed_hk_samples <- reactive({
+        hk_sample_status() |>
+            filter(!HK_valid)
+    })
+
+    output$failed_hk_sample_warning <- renderUI({
+        failed_samples <- failed_hk_samples()
+        req(nrow(failed_samples) > 0)
+
+        sample_labels <- if ("Replicate" %in% names(failed_samples)) {
+            paste0(failed_samples$Sample, " (", failed_samples$Replicate, ")")
+        } else {
+            as.character(failed_samples$Sample)
+        }
+
+        div(
+            class = "alert alert-warning py-2 px-3 m-2 d-flex align-items-start gap-2",
+            style = "font-size: 0.9em;",
+            bs_icon("exclamation-triangle"),
+            tags$span(glue(
+                "Excluded samples because at least one selected housekeeping gene had no detected Cq: {toString(sample_labels)}."
+            ))
+        )
+    })
+
     # Derived Reactive: dCq ----------------------------------------------------
     
     dCq_data <- reactive({
         req(cq_data())
         req(nrow(cq_data()) > 0)
         req(length(input$hk_genes) > 0)
-        
+
+        valid_samples <- hk_sample_status() |>
+            filter(HK_valid) |>
+            select(any_of(c("Sample", "Replicate")))
+
         HK_per_gene <- cq_data() |>
             filter(
                 Keep,
                 Target %in% input$hk_genes
             ) |>
-            group_by(across(
-                c("Sample", "Target", any_of("Replicate"))
-            )) |>
+            semi_join(valid_samples) |>
+            retain_detected_or_all_censored() |>
+            group_by(across(c("Sample", "Target", any_of("Replicate")))) |>
             # summarize each HK separately
             summarize(
-                HK_mean = mean_handle_inf(Cq),
-                HK_sd   = sd_handle_inf(Cq),
-                HK_n    = n_valid_Cq(Cq), # sample size for each gene
+                HK_mean = mean(Cq),
+                HK_sd   = sd(Cq),
+                HK_n    = n(),
                 .groups = "drop"
             )
         
         # Aggregate all HKs per sample
         HK_summary <- HK_per_gene |>
-            group_by(across(
-                c("Sample", any_of("Replicate"))
-            )) |>
+            group_by(across(c("Sample", any_of("Replicate")))) |>
             summarize(
-                HK_mean = mean_handle_inf(HK_mean),
-                n_HK_genes = sum(HK_n > 0),
+                HK_mean = mean(HK_mean),
+                n_HK_genes = n(),
                 # pooled SD for independet samples, allowing different mean (same as in ANOVA)
                 HK_sd_pool = sqrt(
                     sum(HK_sd^2 * (HK_n - 1), na.rm = T) /
@@ -1211,9 +1418,12 @@ server <- function(input, output, session) {
         # Per-HK gene average columns (only if >1 HK gene)
         if (length(input$hk_genes) > 1) {
             HK_wide <- HK_per_gene |>
-                mutate(col_name = paste0("HK_mean_", Target, "_Cq")) |>
-                select(-HK_sd, -HK_n, -Target) |>
-                pivot_wider(names_from = col_name, values_from = HK_mean)
+                select(c("Sample", any_of("Replicate"), "Target", "HK_mean")) |>
+                pivot_wider(
+                    names_from = Target,
+                    values_from = HK_mean,
+                    names_glue = "{.value}_{Target}_Cq"
+                )
         }
         
         result <- cq_data() |>
@@ -1221,9 +1431,11 @@ server <- function(input, output, session) {
                 Keep,
                 !Target %in% input$hk_genes
             ) |>
-            left_join(HK_summary) |>
+            retain_detected_or_all_censored() |>
+            inner_join(HK_summary) |>
             mutate(
                 dCq     = Cq - HK_mean,
+                dCq_censored = Cq_censored,
                 exp_dCq = 2^-dCq
             )
         
@@ -1245,14 +1457,18 @@ server <- function(input, output, session) {
                 c("Sample", "Target", any_of("Replicate"))
             )) |>
             summarize(
-                Cq_n    = n_valid_Cq(Cq),
-                Cq_mean = mean_handle_inf(Cq),
-                Cq_sd   = sd_handle_inf(Cq),
+                Cq_n    = n(),
+                Cq_detected_n = sum(!Cq_censored, na.rm = TRUE),
+                Cq_censored_n = sum(Cq_censored, na.rm = TRUE),
+                Cq_mean = mean(Cq),
+                Cq_censored = all(Cq_censored),
+                Cq_sd   = sd(Cq),
                 Cq_se   = Cq_sd / sqrt(Cq_n),
-                HK_mean_Cq = mean_handle_inf(HK_mean),
+                HK_mean_Cq = mean(HK_mean),
                 # carry forward individual HK gene averages (constant within group)
-                across(starts_with("HK_mean_") & ends_with("_Cq"), ~mean(.x, na.rm = TRUE)),
-                dCq_mean = mean_handle_inf(dCq),
+                across(starts_with("HK_mean_") & ends_with("_Cq"), mean),
+                dCq_mean = mean(dCq),
+                dCq_censored = all(dCq_censored),
                 # propagate SD and SE including HK variance/uncertainty.
                 dCq_sd = ifelse(input$propagate_var,
                                 # propagate HK SD
@@ -1281,9 +1497,7 @@ server <- function(input, output, session) {
                 exp_dCq_sd_high = 2^-(dCq_mean - dCq_sd),
                 exp_dCq_se_low  = 2^-(dCq_mean + dCq_se),
                 exp_dCq_se_high = 2^-(dCq_mean - dCq_se)
-            ) |>
-            # mark undetected
-            mutate(Undetected = Cq_n == 0)
+            )
     })
     # Derived Reactive: number of biological replicates ------------------------
     
@@ -1322,8 +1536,33 @@ server <- function(input, output, session) {
             length()
     })
 
-    # Derived Reactive: n viable samples to select the proper parametric statistical test to use
-    n_finite_samples <- reactive({
+    # Warn when replacement values are the only information available for the
+    # selected target in more than one sample. Such samples cannot be ranked or
+    # meaningfully compared with one another.
+    all_undetected_samples <- reactive({
+        req(dCq_rep_summary(), input$select_out_target)
+        dCq_rep_summary() |>
+            filter(Target == input$select_out_target) |>
+            all_censored_groups(group_col = "Sample", censored_col = "Cq_censored")
+    })
+
+    output$all_undetected_comparison_warning <- renderUI({
+        samples <- all_undetected_samples()
+        req(length(samples) > 1)
+
+        div(
+            class = "alert alert-warning py-2 px-3 m-2 d-flex align-items-start gap-2",
+            style = "font-size: 0.9em;",
+            bs_icon("exclamation-triangle"),
+            tags$span(glue(
+                "{toString(samples)} are undetected in every biological replicate for {input$select_out_target}.
+                Comparisons among these samples should not be considered meaningful."
+            ))
+        )
+    })
+
+    # Samples with a non-missing numeric value for selecting the test family
+    n_numeric_samples <- reactive({
         req(input$select_out_target) 
         req(input$stats_metric)
 
@@ -1332,7 +1571,7 @@ server <- function(input, output, session) {
 
             dCq_rep_summary() |>
                 filter(Target == input$select_out_target) |>
-                filter(is.finite(dCq_mean)) |>
+                filter(!is.na(dCq_mean)) |>
                 pull("Sample") |>
                 unique() |>
                 length()
@@ -1342,7 +1581,7 @@ server <- function(input, output, session) {
             stat_metric <- paste0(input$stats_metric, "_mean")
             ddCq_rep_summary() |>
                 filter(Target == input$select_out_target) |>
-                filter(is.finite(.data[[stat_metric]])) |>
+                filter(!is.na(.data[[stat_metric]])) |>
                 pull("Sample") |>
                 unique() |>
                 length()
@@ -1443,11 +1682,13 @@ server <- function(input, output, session) {
         dCq_rep_summary() |>
             group_by(across(c("Sample", "Target"))) |>
             summarize(
-                dCq_n  = n_valid_Cq(dCq_mean),
-                dCq_sd = sd_handle_inf(dCq_mean),
+                dCq_n  = n(),
+                dCq_censored_n = sum(dCq_censored, na.rm = TRUE),
+                dCq_sd = sd(dCq_mean),
                 dCq_se = dCq_sd / sqrt(dCq_n),
                 # mean of means
-                dCq_mean    = mean_handle_inf(dCq_mean),
+                dCq_mean    = mean(dCq_mean),
+                dCq_censored = any(dCq_censored, na.rm = TRUE),
                 dCq_sd_low  = dCq_mean - dCq_sd,
                 dCq_sd_high = dCq_mean + dCq_sd,
                 dCq_se_low  = dCq_mean - dCq_se,
@@ -1461,42 +1702,77 @@ server <- function(input, output, session) {
                 exp_dCq_sd_high = 2^-(dCq_mean - dCq_sd),
                 exp_dCq_se_low  = 2^-(dCq_mean + dCq_se),
                 exp_dCq_se_high = 2^-(dCq_mean - dCq_se)
-            ) |>
-            # mark undetected
-            mutate(Undetected = dCq_n == 0)
+            )
     })
-    # derived reactive: average dCq for reference sample -----------------------
+    # Reference sample selection and average dCq -------------------------------
+
+    reference_sample_status <- reactive({
+        req(dCq_rep_summary(), input$select_out_target)
+        dCq_rep_summary() |>
+            filter(Target == input$select_out_target) |>
+            group_by(Sample) |>
+            summarize(
+                has_undetected = any(dCq_censored, na.rm = TRUE),
+                .groups = "drop"
+            )
+    })
+
+    observeEvent(list(dCq_rep_summary(), input$select_out_target), {
+        status <- reference_sample_status()
+        req(nrow(status) >= 2)
+
+        samples <- as.character(status$Sample)
+        labels <- ifelse(
+            status$has_undetected,
+            paste0(samples, " (contains undetected)"),
+            samples
+        )
+        choices <- stats::setNames(samples, labels)
+        current <- isolate(input$reference_sample)
+
+        if (is.null(current) || !current %in% samples) {
+            samples_metadata <- hot_to_r(input$samples_tab)
+            ordered <- as.character(samples_metadata$New_Label)
+            selected <- ordered[ordered %in% samples][1]
+        } else {
+            selected <- current
+        }
+        updateSelectInput(session, "reference_sample", choices = choices, selected = selected)
+    })
+
+    reference_sample_valid <- reactive({
+        req(input$reference_sample, input$select_out_target)
+        status <- reference_sample_status() |>
+            filter(as.character(Sample) == input$reference_sample)
+        nrow(status) == 1 && !status$has_undetected
+    })
+
+    valid_reference_samples <- reactive({
+        reference_sample_status() |>
+            filter(!has_undetected) |>
+            pull(Sample) |>
+            as.character()
+    })
     
     reference_sample_dCq <- reactive({
         req(nrow(dCq_rep_summary()) > 0)
-        
-        samples_metadata <- hot_to_r(input$samples_tab)
-        # at least 2 distinct samples
-        req(samples_metadata$New_Label |> unique() |> length() >= 2)
-        
-        reference_sample <- samples_metadata |>
-            first() |>
-            pull("New_Label")
+        req(input$reference_sample)
         
         dCq_rep_summary() |>
-            filter(Sample == reference_sample) |>
+            filter(as.character(Sample) == input$reference_sample) |>
             select(Target, any_of("Replicate"),
                    ref_dCq_mean = dCq_mean,
+                   ref_dCq_censored = dCq_censored,
                    ref_dCq_sd = dCq_sd,
                    ref_dCq_se = dCq_se
             )
     })
-    # Observe: allow ddCq calculation only if reference sample for slected target is valid ----------
+    # Allow ΔΔCq only when the selected reference is uncensored for this target.
     
-    observeEvent(input$select_out_target, {
-        req(input$select_out_target)
-        req(input$select_out_target)
-        
-        current_target_ref_dCq <- reference_sample_dCq() |>
-            filter(Target == input$select_out_target) |>
-            pull("ref_dCq_mean")
-        
-        if (!all(is.finite(current_target_ref_dCq))) {
+    observeEvent(list(input$select_out_target, input$reference_sample, reference_sample_status()), {
+        req(input$select_out_target, input$reference_sample)
+
+        if (!reference_sample_valid()) {
             # Auto-fallback if current selection is incompatible
             current_metric <- input$out_metric
             fallback <- switch(current_metric,
@@ -1530,6 +1806,68 @@ server <- function(input, output, session) {
             )
         }
     })
+
+    # Prompt for another reference when an analysis that requires an uncensored
+    # reference (ΔΔCq or ANCOVA) is requested.
+    observeEvent(
+        list(input$out_metric, input$stats_metric, input$stats_test,
+             input$reference_sample, input$select_out_target,
+             reference_sample_status()),
+        {
+            req(input$reference_sample, input$select_out_target)
+            needs_reference <- isTRUE(input$out_metric %in% c("ddCq", "exp_ddCq")) ||
+                isTRUE(input$stats_metric %in% c("ddCq", "exp_ddCq")) ||
+                isTRUE(input$stats_test %in% c("ancova", "ancova_2_sample"))
+            req(needs_reference, !reference_sample_valid())
+
+            prompt_key <- paste(
+                input$select_out_target,
+                input$reference_sample,
+                input$out_metric %||% "",
+                input$stats_metric %||% "",
+                input$stats_test %||% "",
+                sep = "::"
+            )
+
+            # do not prompt again if the same reference has already been prompted for this target
+            req(!identical(cache$reference_prompt_key, prompt_key))
+            cache$reference_prompt_key <- prompt_key
+            alternatives <- setdiff(valid_reference_samples(), input$reference_sample)
+
+            body <- if (length(alternatives) > 0) {
+                tagList(
+                    tags$p(glue("'{input$reference_sample}' contains one or more undetected values contributing to {input$select_out_target}. Choose an uncensored reference for ΔΔCq or ANCOVA.")),
+                    selectInput(
+                        "reference_sample_modal",
+                        "New reference sample",
+                        choices = alternatives,
+                        selected = alternatives[1]
+                    )
+                )
+            } else {
+                tags$p(glue("No sample is fully detected for {input$select_out_target}. ΔΔCq and ANCOVA are unavailable for this target; ΔCq analyses remain available."))
+            }
+
+            showModal(modalDialog(
+                title = "Choose a different reference sample",
+                body,
+                easyClose = TRUE,
+                footer = if (length(alternatives) > 0) {
+                    tagList(modalButton("Cancel"), actionButton("confirm_reference_sample", "Use reference", class = "btn-primary"))
+                } else {
+                    modalButton("OK")
+                }
+            ))
+        },
+        ignoreInit = TRUE
+    )
+
+    observeEvent(input$confirm_reference_sample, {
+        req(input$reference_sample_modal)
+        updateSelectInput(session, "reference_sample", selected = input$reference_sample_modal)
+        cache$reference_prompt_key <- NULL
+        removeModal()
+    })
     
     # Reactive: ddCq data points -----------------------------------------------
     
@@ -1539,10 +1877,8 @@ server <- function(input, output, session) {
         dCq_data() |>
             left_join(reference_sample_dCq()) |>
             mutate(
-                # Handle Inf - Inf = NaN case 
-                ddCq     = ifelse(is.infinite(dCq) & is.infinite(ref_dCq_mean),
-                                  0,
-                                  dCq - ref_dCq_mean),
+                ddCq = dCq - ref_dCq_mean,
+                ddCq_censored = dCq_censored | ref_dCq_censored,
                 exp_ddCq = 2^-ddCq
             )
     })
@@ -1553,10 +1889,8 @@ server <- function(input, output, session) {
         dCq_rep_summary() |>
             left_join(reference_sample_dCq()) |>
             mutate(
-                # Handle Inf - Inf = NaN case   
-                ddCq_mean     = ifelse(is.infinite(dCq_mean) & is.infinite(ref_dCq_mean),
-                                       0,
-                                       dCq_mean - ref_dCq_mean),
+                ddCq_mean = dCq_mean - ref_dCq_mean,
+                ddCq_censored = dCq_censored | ref_dCq_censored,
                 exp_ddCq_mean = 2^-ddCq_mean,
                 ddCq_sd = ifelse(input$propagate_var,
                                  # propagate control SD
@@ -1586,11 +1920,13 @@ server <- function(input, output, session) {
         ddCq_rep_summary() |>
             group_by(across(c("Sample", "Target"))) |>
             summarize(
-                ddCq_n    = n_valid_Cq(ddCq_mean),
-                ddCq_sd   = sd_handle_inf(ddCq_mean),
+                ddCq_n    = count_non_missing(ddCq_mean),
+                ddCq_censored_n = sum(ddCq_censored, na.rm = TRUE),
+                ddCq_sd   = sd(ddCq_mean, na.rm = TRUE),
                 ddCq_se   = ddCq_sd / sqrt(ddCq_n),
                 # mean of means
-                ddCq_mean    = mean_handle_inf(ddCq_mean),
+                ddCq_mean    = mean_or_na(ddCq_mean),
+                ddCq_censored = any(ddCq_censored, na.rm = TRUE),
                 ddCq_sd_low  = ddCq_mean - ddCq_sd,
                 ddCq_sd_high = ddCq_mean + ddCq_sd,
                 ddCq_se_low  = ddCq_mean - ddCq_se,
@@ -1604,9 +1940,7 @@ server <- function(input, output, session) {
                 exp_ddCq_sd_high = 2^-(ddCq_mean - ddCq_sd),
                 exp_ddCq_se_low  = 2^-(ddCq_mean + ddCq_se),
                 exp_ddCq_se_high = 2^-(ddCq_mean - ddCq_se)
-            ) |>
-            # mark undetected
-            mutate(Undetected = ddCq_n == 0)
+            )
     })
     # Output Flags: Conditional panel visibility for statistical tests ---------
     
@@ -1761,7 +2095,7 @@ server <- function(input, output, session) {
     outputOptions(output, "show_post_hoc_test", suspendWhenHidden = FALSE)
     # Observer: Update stats_test choices based on metric and sample count ----------
     
-    observeEvent(list(input$stats_metric, n_samples(), n_finite_samples(), n_bio_reps()), {
+    observeEvent(list(input$stats_metric, n_samples(), n_numeric_samples(), n_bio_reps()), {
         req(input$stats_metric)
         req(n_samples() >= 2)
         req(n_bio_reps() >= 2)
@@ -1773,7 +2107,7 @@ server <- function(input, output, session) {
         # Number of samples
         n_samples <- n_samples()
         # Number of viable samples for parametric test
-        n_finite_samples <- n_finite_samples()
+        n_numeric_samples <- n_numeric_samples()
         
         # Determine available tests and default based on metric and sample count
         # parametric choices
@@ -1781,7 +2115,7 @@ server <- function(input, output, session) {
         default <- NULL
 
         # parametric tests choices
-        if (n_finite_samples > 2) {
+        if (n_numeric_samples > 2) {
             # > 2 samples
             if (metric == "dCq") {
                 # dCq: comparison across samples accounting for HK variance
@@ -1815,7 +2149,7 @@ server <- function(input, output, session) {
             }
         }
 
-        # non-parametric tests choices (doesn't require samples to be finite)
+        # Non-parametric test choices
         if (include_nonparam) {
             if (n_samples > 2) {
                 if (metric == "dCq") {
@@ -1837,6 +2171,18 @@ server <- function(input, output, session) {
         
         updatePickerInput(session, "stats_test", choices = choices, selected = default)
     })
+
+    # Default to unequal variance whenever an independent t-test is selected:
+    # repeated pairwise Welch tests for >2 samples, or Welch's test for 2 samples.
+    observeEvent(input$stats_test, {
+        req(input$stats_test)
+        updatePrettySwitch(
+            session,
+            "stats_unequal_variance",
+            value = input$stats_test %in% c("repeated_ttest", "ttest")
+        )
+    })
+
     # Output: Post-hoc test description based on omnibus test and comparison ----------
     
     output$stats_posthoc <- renderText({
@@ -1893,90 +2239,45 @@ server <- function(input, output, session) {
         
         # Prepare data based on metric
         if (response == "dCq") {
-            # For dCq tests, we need dCq with reference sample info
             data <- dCq_rep_summary() |>
                 filter(Target == input$select_out_target) |>
-                left_join(reference_sample_dCq(), by = c("Target", "Replicate")) |>
-                # Rename to match expected column names in statistical functions
-                rename(dCq = dCq_mean, ref_dCq = ref_dCq_mean) |>
-                drop_na(dCq, ref_dCq)
-            
+                rename(dCq = dCq_mean)
+
+            if (test %in% c("ancova", "ancova_2_sample")) {
+                validate(need(
+                    reference_sample_valid(),
+                    "Choose a reference sample without undetected values before running ANCOVA."
+                ))
+                data <- data |>
+                    left_join(reference_sample_dCq(), by = c("Target", "Replicate")) |>
+                    rename(ref_dCq = ref_dCq_mean) |>
+                    drop_na(dCq, ref_dCq)
+            } else {
+                data <- data |> drop_na(dCq)
+            }
         } else {
-            # For ddCq or exp_ddCq, use ddCq data
+            validate(need(
+                reference_sample_valid(),
+                "Choose a reference sample without undetected values before testing ΔΔCq."
+            ))
             data <- ddCq_rep_summary() |>
                 filter(Target == input$select_out_target) |>
-                # Rename to match expected column names in statistical functions
                 rename(ddCq = ddCq_mean, exp_ddCq = exp_ddCq_mean) |>
                 drop_na(ddCq, exp_ddCq)
         }
-        
-        # --- Handle Inf (undetected) values based on test type ---
-        nonparam_tests <- c("kruskal", "repeated_wilcoxon", "wilcoxon",
-                            "repeated_mann_whitney", "mann_whitney")
-        
-        n_dropped_samples <- 0
-        n_dropped_points  <- 0
-        n_dropped_reps    <- 0
-        
-        if (test %in% nonparam_tests) {
-            # Non-parametric: replace Inf with 999 to preserve rank information
-            inf_replacement <- 999
-            data <- data |>
-                mutate(!!response := if_else(
-                    !is.finite(.data[[response]]), inf_replacement, .data[[response]]
-                ))
-            
-        } else if (test %in% c("ancova", "ancova_2_sample")) {
-            # ANCOVA: drop entire replicate run if the covariate (ref_dCq) is Inf
-            reps_with_inf_covariate <- data |>
-                filter(!is.finite(ref_dCq)) |>
-                pull(Replicate) |>
-                unique()
-            
-            n_dropped_reps <- length(reps_with_inf_covariate)
-            if (n_dropped_reps > 0) {
-                data <- data |>
-                    filter(!Replicate %in% reps_with_inf_covariate)
-            }
 
-            # drop samples with all infinite values 
-            data <- data |>
-                group_by(Sample) %>%
-                filter(any(is.finite(.data[[response]]))) %>%
-                ungroup()
-
-            n_dropped_samples <- n_samples() - length(unique(data$Sample))
-            
-            # Then also filter individual Inf values in the response
-            n_before <- nrow(data) 
-            data <- data |> filter(is.finite(.data[[response]]))
-            n_dropped_points <- n_before - nrow(data) # note this wil report removed points in addition to the eventual replicate run
+        censor_flag <- paste0(response, "_censored")
+        n_censored_points <- if (censor_flag %in% names(data)) {
+            sum(data[[censor_flag]], na.rm = TRUE)
         } else {
-            # All other parametric tests: 
-
-            # drop samples with all infinite values 
-            data <- data |>
-                group_by(Sample) %>%
-                filter(any(is.finite(.data[[response]]))) %>%
-                ungroup() |>
-                droplevels()
-
-            n_dropped_samples <- n_samples() - length(unique(data$Sample))
-            
-            # Then also filter individual Inf values in the response
-            data <- data |> mutate(
-                # replace not finite values with NA (pairwise paired t-test requires complete values)
-                !!response := if_else(
-                    !is.finite(.data[[response]]), NA_real_, .data[[response]]
-                )
-            ) 
-
-            n_after <- nrow(data |> tidyr::drop_na(all_of(response)))
-            n_dropped_points <- nrow(data) - n_after # additioanlly dropped data points
+            0
         }
-        
-        # drop unused sample levels after NA filtering
-        data <- data |> droplevels()
+
+        # Make the selected reference the control level for Dunnett/control
+        # comparisons as well as for the ΔΔCq calculation.
+        data <- data |>
+            mutate(Sample = forcats::fct_relevel(Sample, input$reference_sample)) |>
+            droplevels()
 
         # Recalculate available samples after filtering
         n_samples <- data$Sample |> unique() |> length()
@@ -2000,13 +2301,14 @@ server <- function(input, output, session) {
                              "repeated_mann_whitney" = run_repeated_mann_whitney(data, response = response, comparison = comparison, p_adjust_method = p_adjust),
                              "mann_whitney" = run_mann_whitney(data, response = response)
             )
-            # Add dropped count to result for warning display
-            result$n_dropped_points <- n_dropped_points
-            result$n_dropped_reps <- n_dropped_reps
-            result$n_dropped_samples <- n_dropped_samples
+            result$n_censored_points <- n_censored_points
+            result$n_dropped_points <- 0
+            result$n_dropped_reps <- 0
+            result$n_dropped_samples <- 0
             result
         }, error = function(e) {
-            list(error = as.character(e$message), n_dropped_points = n_dropped_points, n_dropped_reps = n_dropped_reps, n_dropped_samples = n_dropped_samples)
+            list(error = as.character(e$message), n_censored_points = n_censored_points,
+                 n_dropped_points = 0, n_dropped_reps = 0, n_dropped_samples = 0)
             # print the error in the consol
             print(e)
         })
@@ -2027,43 +2329,21 @@ server <- function(input, output, session) {
     })
     outputOptions(output, "has_omnibus_test", suspendWhenHidden = FALSE)
     
-    # Output: Dropped count for Inf values (to enable conditional warning panel) -----------
+    # Output: Count replacements included in the selected statistical analysis -
     output$stats_dropped_count <- reactive({
         req(stats_result())
-        max(0, stats_result()$n_dropped_points, stats_result()$n_dropped_reps, stats_result()$n_dropped_samples)
+        stats_result()$n_censored_points %||% 0
     })
     outputOptions(output, "stats_dropped_count", suspendWhenHidden = FALSE)
     
-    # Output: Warning text for dropped Inf values ------------------------------
+    # Output: Warning text for numeric replacement values ----------------------
     output$stats_dropped_warning <- renderUI({
         req(stats_result())
-        n_dropped_samples <- stats_result()$n_dropped_samples
-        n_dropped_points  <- stats_result()$n_dropped_points
-        n_dropped_reps    <- stats_result()$n_dropped_reps
-        
-        req(n_dropped_points > 0 || n_dropped_reps > 0 || n_dropped_samples > 0)
-        
-
-        sample_msg <- if(n_dropped_samples > 0) {
-                glue("{n_dropped_samples} sample{ifelse(n_dropped_samples > 1, 's', '')} with no detected value{ifelse(n_dropped_samples > 1, 's were', ' was')} excluded from the analysis.")  
-            } else {NULL}
-
-        rep_msg <- if(n_dropped_reps > 0) {
-                glue("{n_dropped_reps} replicate run{ifelse(n_dropped_reps > 1, 's', '')} with undetected value{ifelse(n_dropped_reps > 1, 's', '')} in reference dCq {ifelse(n_dropped_reps > 1, 'were', 'was')} excluded from the analysis.")
-            } else {NULL}
-
-        points_msg <- if(n_dropped_points > 0) {
-                glue("{n_dropped_points} data point{ifelse(n_dropped_points > 1, 's', '')} with undetected value{ifelse(n_dropped_points > 1, 's were', ' was')} excluded from the analysis.")
-            } else {NULL}
-        
-        tags$ul(
-            lapply(c(sample_msg, rep_msg, points_msg),
-                  function(x) tags$li(x)
-            )
+        n <- stats_result()$n_censored_points %||% 0
+        req(n > 0)
+        tags$span(
+            glue("{n} biological-replicate run{ifelse(n == 1, '', 's')} with all technical replicates undetected {ifelse(n == 1, 'is', 'are')} included using the numeric replacement cycle ({max_cycle_value()}); the censoring flag is retained in the data exports.")
         )
-
-        # paste0(c(sample_msg, rep_msg, points_msg),
-        #        collapse = "\\n")
     })
     
     # Output: Omnibus badge (brief p-value indicator) --------------------------
@@ -2366,18 +2646,40 @@ server <- function(input, output, session) {
                 ))
         }
         
-        y_limits <- get_y_limits(values, metric = input$out_metric, undetected_value = cq_undetected_value())
-        
-        undetected_present <- any(!is.finite(values[!is.na(values)]))
-        y_min_label <- if (input$out_metric == "dCq" & undetected_present) {
-            glue("≤{y_limits[1]}")
-        } else {
-            glue("{y_limits[1]}")
-        }
-        
-        # Mark point types
+        y_limits <- get_y_limits(
+            values,
+            metric = input$out_metric,
+            undetected_value = max_cycle_value()
+        )
+
+        point_censored_col <- censoring_column_for(y_value)
+        summary_censored_col <- censoring_column_for(y_summary_value)
+        req(point_censored_col %in% names(df_target))
+        req(summary_censored_col %in% names(df_summary_target))
+
+        point_censored <- df_target[[point_censored_col]]
+        point_censored[is.na(point_censored)] <- FALSE
+        summary_censored <- df_summary_target[[summary_censored_col]]
+        summary_censored[is.na(summary_censored)] <- FALSE
+        undetected_present <- any(point_censored)
+        y_min_label <- as.character(y_limits[1])
+
+        # Mark point types and add censoring symbols to plot hover text.
         df_target <- df_target |>
-            mutate(point_type_label = ifelse(Undetected, "Undetected", "Detected"))
+            mutate(
+                point_type_label = ifelse(point_censored, "Undetected", "Detected"),
+                plot_value_display = format_censored_value(
+                    sign * .data[[y_value]], point_censored,
+                    censoring_direction_for(y_value, sign), digits = 2
+                )
+            )
+        df_summary_target <- df_summary_target |>
+            mutate(
+                summary_value_display = format_censored_value(
+                    sign * .data[[y_summary_value]], summary_censored,
+                    censoring_direction_for(y_summary_value, sign), digits = 2
+                )
+            )
         
         list(
             df_target          = df_target,
@@ -2488,20 +2790,63 @@ server <- function(input, output, session) {
     })
     # Export Data Reactives (shared by preview tables and XLSX download) ========
     
-    # Replace Inf/-Inf with 9E+99/-9E+99 (not supported by Excel or DT)
-    sanitize_inf <- function(df) {
-        df |> mutate(across(where(is.numeric), ~ ifelse(is.infinite(.), sign(.) * 9E+99, .)))
+    # Export the display value, numeric replacement and one censoring flag.
+    finalize_export_metrics <- function(df, metrics, digits = 4) {
+        metrics <- metrics[metrics %in% names(df)]
+        for (metric in metrics) {
+            censor_col <- censoring_column_for(metric)
+
+            # Housekeeping-gene means should never be censored: samples without a
+            # detected HK have already been excluded from ΔCq processing.
+            if (is.null(censor_col)) {
+                next
+            }
+
+            censored <- if (censor_col %in% names(df)) {
+                df[[censor_col]]
+            } else {
+                rep(FALSE, nrow(df))
+            }
+            censored[is.na(censored)] <- FALSE
+
+            df[[paste0(metric, "_numeric")]] <- df[[metric]]
+            df[[metric]] <- format_censored_value(
+                df[[metric]], censored,
+                censoring_direction_for(metric), digits = digits
+            )
+            df[[paste0(metric, "_censored")]] <- censored
+        }
+        df
+    }
+
+    metric_export_names <- function(metrics) {
+        unlist(lapply(metrics, function(metric) {
+            if (is.null(censoring_column_for(metric))) {
+                metric
+            } else {
+                c(metric, paste0(metric, c("_numeric", "_censored")))
+            }
+        }), use.names = FALSE)
     }
     
     export_raw_cq <- reactive({
-        req(hot_to_r(input$raw_data))
+        raw_data <- current_raw_data()
+        req(raw_data)
         req(nrow(hot_to_r(input$samples_tab)) > 0)
         req(nrow(hot_to_r(input$targets_tab)) > 0)
         
         samples_metadata <- hot_to_r(input$samples_tab)
         targets_metadata <- hot_to_r(input$targets_tab)
-        
-        hot_to_r(input$raw_data) |>
+
+        raw_data |>
+            parse_Cq_data() |>
+            mutate(
+                Cq = replace_censored(
+                    Cq,
+                    censored = Cq_censored,
+                    replacement = max_cycle_value()
+                )
+            ) |>
             mutate(Key = row_number()) |>
             # join sample metadata
             left_join(
@@ -2521,21 +2866,28 @@ server <- function(input, output, session) {
                            coalesce(!Target_Include, FALSE) |
                            Key %in% cache$excluded_point_keys
             ) |>
-            mutate(Cq = parse_Cq(Cq) |> as.numeric()) |>
             select(-Key, -Sample_Label, -Sample_Include, -Target_Label, -Target_Include) |>
-            sanitize_inf()
+            finalize_export_metrics("Cq") |>
+            select(Sample, Target, any_of("Replicate"),
+                   all_of(metric_export_names("Cq")), Excluded)
     })
     
     export_technical <- reactive({
         req(ddCq_data())
-        ddCq_data() |>
-            rename(HK_mean_Cq = HK_mean, ref_mean_dCq = ref_dCq_mean) |>
+        df <- ddCq_data() |>
+            rename(
+                HK_mean_Cq = HK_mean,
+                ref_mean_dCq = ref_dCq_mean
+            )
+
+        hk_metrics <- names(df)[grepl("^HK_mean_.+_Cq$", names(df)) & names(df) != "HK_mean_Cq"]
+
+        metrics <- c("Cq", "HK_mean_Cq", hk_metrics, "dCq", "exp_dCq",
+                     "ref_mean_dCq", "ddCq", "exp_ddCq")
+        df |>
+            finalize_export_metrics(metrics) |>
             select(any_of("Replicate"), Sample, Target,
-                   Cq, HK_mean_Cq,
-                   starts_with("HK_mean_") & ends_with("_Cq") & !matches("^HK_mean_Cq$"),
-                   dCq, exp_dCq, ref_mean_dCq,
-                   ddCq, exp_ddCq) |>
-            sanitize_inf()
+                   any_of(metric_export_names(metrics)))
     })
     
     export_bio_rep <- reactive({
@@ -2543,17 +2895,20 @@ server <- function(input, output, session) {
         
         df <- ddCq_rep_summary() |>
             mutate(Cq_n = as.integer(Cq_n)) |>
-            rename(ref_mean_dCq = ref_dCq_mean)
+            rename(
+                ref_mean_dCq = ref_dCq_mean
+            )
         
         # Base columns always shown
         # Include individual HK gene average columns (HK_mean_<gene>_Cq) if present
         hk_indiv_cols <- names(df)[grepl("^HK_mean_.+_Cq$", names(df)) & names(df) != "HK_mean_Cq"]
         
+        metrics <- c("Cq_mean", "HK_mean_Cq", hk_indiv_cols,
+                     "dCq_mean", "exp_dCq_mean", "ref_mean_dCq",
+                     "ddCq_mean", "exp_ddCq_mean")
         base_cols <- c("Replicate", "Sample", "Target",
-                       "Cq_n", "Cq_mean", "HK_mean_Cq", hk_indiv_cols,
-                       "dCq_mean", "exp_dCq_mean",
-                       "ref_mean_dCq",
-                       "ddCq_mean", "exp_ddCq_mean")
+                       "Cq_n", "Cq_detected_n", "Cq_censored_n",
+                       metric_export_names(metrics))
         
         # Only include dispersion when single replicate (or no Replicate column)
         # and user has error bars enabled
@@ -2570,18 +2925,24 @@ server <- function(input, output, session) {
         }
         
         df |>
-            select(any_of(base_cols)) |>
-            sanitize_inf()
+            finalize_export_metrics(metrics) |>
+            select(any_of(base_cols))
     })
     
     export_summary <- reactive({
         req(n_bio_reps() > 1)
-        dCq_summary() |>
-            select(-Undetected) |>
+        df <- dCq_summary() |>
             left_join(ddCq_summary(), by = c("Sample", "Target")) |>
             mutate(across(where(is.integer), as.integer)) |>
-            select(-matches("^(dCq|ddCq)_(sd|se)_(low|high)$")) |>
-            sanitize_inf()
+            select(-matches("^(dCq|ddCq)_(sd|se)_(low|high)$"))
+
+        metrics <- c("dCq_mean", "exp_dCq_mean", "ddCq_mean", "exp_ddCq_mean")
+        df |>
+            finalize_export_metrics(metrics) |>
+            select(Sample, Target, any_of(c("dCq_n", "dCq_censored_n")),
+                   any_of(metric_export_names(metrics)),
+                   any_of(c("ddCq_n", "ddCq_censored_n")),
+                   any_of(c("dCq_sd", "dCq_se", "ddCq_sd", "ddCq_se")))
     })
     
     # Data Preview Tables ======================================================

@@ -36,13 +36,13 @@ build_results_plot <- function(plot_data, accent_color, secondary_color) {
             glue(
                 "{Sample} ({Replicate})
                 Target: {Target}
-                {y_label}: {round(sign*.data[[y_value]], 2)}"
+                {y_label}: {plot_value_display}"
             )
         } else {
             glue(
                 "{Sample}
                 Target: {Target}
-                {y_label}: {round(sign*.data[[y_value]], 2)}"
+                {y_label}: {plot_value_display}"
             )
         })
     
@@ -50,7 +50,7 @@ build_results_plot <- function(plot_data, accent_color, secondary_color) {
         mutate(text = glue(
             "{Sample}
             Target: {Target}
-            Mean {y_label}: {round(sign*.data[[y_summary_value]], 2)}
+            Mean {y_label}: {summary_value_display}
             {error_bar_label}"
         ))
     
@@ -122,7 +122,7 @@ build_results_plot <- function(plot_data, accent_color, secondary_color) {
             expand = expansion(mult = 0.05, add = 0),
             breaks = if (undetected_present) function(x) union(labeling::extended(x[1], x[2], 5), y_limits[1]) else waiver(),
             labels = if (undetected_present) function(x) ifelse(x == y_limits[1], y_min_label, x) else waiver(),
-            oob = if (undetected_present) function(x, range) squish_infinite_to_val(x, range, to_value = abs(y_limits[1])) else scales::oob_keep
+            oob = scales::oob_keep
         ) +
         theme_minimal(base_size = 14) +
         theme(
@@ -265,7 +265,7 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
             expand = if (out_metric %in% c("exp_dCq", "exp_ddCq")) expansion(mult = c(0, 0.05), add = 0) else expansion(mult = 0.05, add = 0),
             breaks = if (undetected_present) function(x) union(labeling::extended(x[1], x[2], 5), y_limits[1]) else waiver(),
             labels = if (undetected_present) function(x) ifelse(x == y_limits[1], y_min_label, x) else waiver(),
-            oob = if (undetected_present) function(x, range) squish_infinite_to_val(x, range, to_value = abs(y_limits[1])) else scales::oob_keep
+            oob = scales::oob_keep
         ) +
         theme_minimal(base_size = axis_text_size) +
         theme(
