@@ -4,7 +4,6 @@ library(shinyWidgets)
 library(bsicons)
 library(rhandsontable)
 library(colourpicker)
-
 library(tidyverse)
 library(plotly)
 library(ggbeeswarm)
@@ -480,7 +479,6 @@ ui <- page_fillable(
                     fillable = TRUE,
                     card_header(textOutput("res_plot_title", inline = TRUE)),
                     uiOutput("failed_hk_sample_warning"),
-                    uiOutput("all_undetected_comparison_warning"),
                     plotlyOutput("res_plot", height = "100%")
                 ),
                 # Statistical Results Card (only shown when stats panel is active)
@@ -545,6 +543,8 @@ ui <- page_fillable(
                             )
 
                         ),
+                        uiOutput("all_undetected_comparison_warning"),
+                        uiOutput("bio_rep_undetected_comparison_warning"),
                         # Method description
                         div(
                             class = "bg-light py-2 px-3",
@@ -1539,14 +1539,49 @@ server <- function(input, output, session) {
             length()
     })
 
-    # Warn when replacement values are the only information available for the
-    # selected target in more than one sample. Such samples cannot be ranked or
-    # meaningfully compared with one another.
+    # Warn in the statistical-analysis section when replacement values are the
+    # only target information available for more than one sample. Any apparent
+    # difference between these samples comes from their HK values, not from a
+    # measured difference in the target.
     all_undetected_samples <- reactive({
         req(dCq_rep_summary(), input$select_out_target)
         dCq_rep_summary() |>
             filter(Target == input$select_out_target) |>
             all_censored_groups(group_col = "Sample", censored_col = "Cq_censored")
+    })
+
+    # Pairwise comparisons in which both samples contain
+    # fully undetected biological replicate require caution
+    # even when their other replicates were detected.
+    samples_with_undetected_bio_reps <- reactive({
+        req(dCq_rep_summary(), input$select_out_target)
+
+        dCq_rep_summary() |>
+            filter(Target == input$select_out_target) |>
+            group_by(Sample) |>
+            summarize(
+                has_undetected_bio_rep = any(Cq_censored, na.rm = TRUE),
+                .groups = "drop"
+            ) |>
+            filter(has_undetected_bio_rep) |>
+            pull(Sample) |>
+            as.character()
+    })
+
+    undetected_bio_rep_comparison_pairs <- reactive({
+        affected_samples <- samples_with_undetected_bio_reps()
+        if (length(affected_samples) < 2) return(character())
+
+        pairs <- combn(affected_samples, 2, simplify = FALSE)
+        fully_undetected <- all_undetected_samples()
+
+        # Pairs in which both samples are fully undetected are already covered
+        # by the stronger warning below.
+        pairs <- Filter(
+            function(pair) !all(pair %in% fully_undetected),
+            pairs
+        )
+        vapply(pairs, paste, collapse = " vs ", FUN.VALUE = character(1))
     })
 
     output$all_undetected_comparison_warning <- renderUI({
@@ -1559,7 +1594,28 @@ server <- function(input, output, session) {
             bs_icon("exclamation-triangle"),
             tags$span(glue(
                 "{toString(samples)} are undetected in every biological replicate for {input$select_out_target}.
-                Comparisons among these samples should not be considered meaningful."
+                Comparisons among these samples should not be considered meaningful.
+                Any apparent difference in normalized expression reflect HK differences rather than differences in the target itself:
+                in a sample with more abundant RNA (lower HK Cq), the target would need to be very scarce to remain undetected.
+                In a sample with less abundant RNA (higher HK Cq), an undetected result is relatively easier to obtain even when the target's normalized expression could still be appreciable."
+            ))
+        )
+    })
+
+    output$bio_rep_undetected_comparison_warning <- renderUI({
+        comparison_pairs <- undetected_bio_rep_comparison_pairs()
+        req(length(comparison_pairs) > 0)
+
+        div(
+            class = "alert alert-warning py-2 px-3 m-2 d-flex align-items-start gap-2",
+            style = "font-size: 0.9em;",
+            bs_icon("exclamation-triangle"),
+            tags$span(glue(
+                "The following comparison(s) involve two samples that both contain undetected values: {toString(comparison_pairs)}.
+                Comparisons among these samples should be interpreted with caution.
+                Apparent differences in normalized expression of undetected values reflect HK differences rather than differences in the target itself:
+                in a sample with more abundant RNA (lower HK Cq), the target would need to be very scarce to remain undetected.
+                In a sample with less abundant RNA (higher HK Cq), an undetected result is relatively easier to obtain even when the target's normalized expression could still be appreciable."
             ))
         )
     })
