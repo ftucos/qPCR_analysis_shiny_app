@@ -480,6 +480,7 @@ ui <- page_fillable(
                         card_header(
                             textOutput("stats_card_title", inline = TRUE)
                         ),
+                        uiOutput("stats_reference_validation"),
                         # Omnibus section (for ANCOVA, ANOVA, Mixed Effect, Kruskal-Wallis)
                         conditionalPanel(
                             condition = "output.has_omnibus_test",
@@ -1358,7 +1359,7 @@ server <- function(input, output, session) {
             style = "font-size: 0.9em;",
             bs_icon("exclamation-triangle"),
             tags$span(glue(
-                "Excluded samples because at least one selected housekeeping gene had no detected Cq: {toString(sample_labels)}."
+                "Excluded sample(s) because at least one selected housekeeping gene had no detected Cq: {toString(sample_labels)}."
             ))
         )
     })
@@ -2197,6 +2198,36 @@ server <- function(input, output, session) {
         
         posthoc
     })
+
+    # Return one user-facing message when the selected analysis requires a
+    # fully detected reference sample. Statistical outputs stop silently and
+    # this message is rendered once at the top of the results card.
+    stats_reference_validation_message <- reactive({
+        req(input$stats_metric, input$stats_test)
+
+        if (input$stats_metric == "dCq" &&
+            input$stats_test %in% c("ancova", "ancova_2_sample") &&
+            !reference_sample_valid()) {
+            return("Choose a reference sample without undetected values before running ANCOVA.")
+        }
+
+        if (input$stats_metric != "dCq" && !reference_sample_valid()) {
+            return("Choose a reference sample without undetected values before testing ΔΔCq.")
+        }
+
+        NULL
+    })
+
+    output$stats_reference_validation <- renderUI({
+        message <- stats_reference_validation_message()
+        req(!is.null(message))
+
+        div(
+            class = "alert alert-warning py-2 px-3 mb-3 d-flex align-items-center gap-2",
+            bs_icon("exclamation-triangle"),
+            tags$span(message)
+        )
+    })
     
     # Reactive: Run Statistical Test -------------------------------------------
     
@@ -2222,6 +2253,7 @@ server <- function(input, output, session) {
                            "kruskal", "repeated_mann_whitney", "mann_whitney")
         valid_tests   <- if (response == "dCq") dCq_tests else non_dCq_tests
         req(test %in% valid_tests)
+        req(is.null(stats_reference_validation_message()))
         
         equal_var  <- !isTRUE(input$stats_unequal_variance)
         comparison <- input$stats_comparison
@@ -2234,10 +2266,6 @@ server <- function(input, output, session) {
                 rename(dCq = dCq_mean)
 
             if (test %in% c("ancova", "ancova_2_sample")) {
-                validate(need(
-                    reference_sample_valid(),
-                    "Choose a reference sample without undetected values before running ANCOVA."
-                ))
                 data <- data |>
                     left_join(reference_sample_dCq(), by = c("Target", "Replicate")) |>
                     rename(ref_dCq = ref_dCq_mean) |>
@@ -2246,10 +2274,6 @@ server <- function(input, output, session) {
                 data <- data |> drop_na(dCq)
             }
         } else {
-            validate(need(
-                reference_sample_valid(),
-                "Choose a reference sample without undetected values before testing ΔΔCq."
-            ))
             data <- ddCq_rep_summary() |>
                 filter(Target == input$select_out_target) |>
                 rename(ddCq = ddCq_mean, exp_ddCq = exp_ddCq_mean) |>
