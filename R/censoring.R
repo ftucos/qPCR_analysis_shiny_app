@@ -91,8 +91,8 @@ all_censored_groups <- function(df, group_col = "Sample", censored_col = "Cq_cen
 
 # Format qPCR numbers without vector-wide whitespace or zero padding.
 #
-# Values are rounded to `digits`, scientific notation is suppressed, and
-# missing values remain NA_character_. Each element is formatted independently.
+# Values are rounded to `digits` significant figures. Missing
+# values remain NA_character_. Each element is formatted independently.
 format_qpcr_number <- function(x, digits = 4) {
     # format() pads every element to the greatest precision present in a
     # vector (e.g. c(21.7, 21.72) becomes c("21.70", "21.72")). Format each
@@ -100,9 +100,8 @@ format_qpcr_number <- function(x, digits = 4) {
     unname(vapply(x, function(value) {
         if (is.na(value)) return(NA_character_)
         format(
-            round(value, digits),
+            signif(value, digits),
             trim = TRUE,
-            scientific = FALSE,
             nsmall = 0
         )
     }, character(1)))
