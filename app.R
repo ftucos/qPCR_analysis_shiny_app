@@ -52,7 +52,7 @@ ui <- page_fillable(
 
     # Custom CSS
     tags$head(
-        tags$link(rel = "stylesheet", type = "text/css", href = "www/custom.css")
+        includeCSS("www/custom.css")
     ),
     
     # Main navigation
