@@ -543,15 +543,12 @@ run_kruskal <- function(x,
 
     comparison <- match.arg(comparison)
     response   <- match.arg(response)
+    p_adjust_method <- match.arg(p_adjust_method)
     
     sample_sizes <- x |>
       tidyr::drop_na(all_of(response)) |>
       count(Sample)
     
-    if (comparison == "pairwise") { # not requiret for many vs one dunn test (single-stpe adjustment)
-        p_adjust_method   <- match.arg(p_adjust_method)
-    }
-
     test_formula <- reformulate("Sample", response = response)
 
     # Omnibus: Kruskal-Wallis
@@ -576,21 +573,23 @@ run_kruskal <- function(x,
 
     # Post-hoc: Dunn's test
     if (comparison == "pairwise") {
+        post_hoc_adjustment <- p_adjust_method
         post_hoc <- PMCMRplus::kwAllPairsDunnTest(
-            test_formula, data = x, p.adjust.method = p_adjust_method
+            test_formula, data = x, p.adjust.method = post_hoc_adjustment
         )
         
         post_hoc_method <- ifelse(
-            p_adjust_method != "none",
-            glue("Dunn's test ({str_replace(p_adjust_method, 'holm', 'Holm')} adjusted)"),
+            post_hoc_adjustment != "none",
+            glue("Dunn's test ({str_replace(post_hoc_adjustment, 'holm', 'Holm')} adjusted)"),
             "Dunn's test (unadjusted)"
         )
         
     } else {
+        post_hoc_adjustment <- "single-step"
         post_hoc <- PMCMRplus::kwManyOneDunnTest(
-            test_formula, data = x, p.adjust.method = "single-step"
+            test_formula, data = x, p.adjust.method = post_hoc_adjustment
         )
-        post_hoc_method <- "Dunn's test"
+        post_hoc_method <- "Dunn's test (single-step adjusted)"
     }
 
     post_hoc_res <- post_hoc |>
@@ -603,7 +602,7 @@ run_kruskal <- function(x,
         select(Term, group1, group2, n1, n2, `z-value`, p.value, Significance)
     
     
-    if (p_adjust_method != "none") {
+    if (post_hoc_adjustment != "none") {
         post_hoc_res <- post_hoc_res |>
             rename(`Adj. p-value` = p.value)
     } else {
@@ -1053,26 +1052,6 @@ run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
         method     = method
     )
 }
-
-
-# test the functions ---------
-# x <- read_csv("data/simulated_qPCR_data.csv") |>
-#     mutate(Sample = factor(Sample))
-# run_ancova(x, comparison = "pairwise")
-# run_mixed_effect(x, comparison = "trt.vs.ctrl", equal.var = T)
-# run_anova(x, comparison = "pairwise", response = "ddCq")
-# run_kruskal(x, comparison = "pairwise", response = "exp_ddCq", p_adjust_method = "holm")
-# run_repeated_paired_ttest(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_method = "BH")
-# run_repeated_ttest(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
-# run_repeated_wilcoxon(x, comparison = "trt.vs.ctrl", response = "dCq", p_adjust_method = "BH")
-# run_repeated_mann_whitney(x, comparison = "trt.vs.ctrl", response = "ddCq", p_adjust_method = "BH")
-# x_2 <- x |> filter(Sample %in% c("Ctrl", "TrtA"))
-# run_ancova_2_sample(x_2, response = "dCq")
-# run_mixed_effect_2_sample(x_2, response = "dCq")
-# run_paired_ttest(x_2, response = "dCq")
-# run_ttest(x_2, response = "ddCq")
-# run_wilcoxon(x_2, response = "dCq")
-# run_mann_whitney(x_2, response = "ddCq")
 
 # TODO:
 # protect post-hoc test
