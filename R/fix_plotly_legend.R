@@ -10,3 +10,23 @@ fix_plotly_legend <- function(gp) {
     gp
 }
 
+# Disable hover labels for empty filled regions created by ggplot annotations
+# (for example, the gray borderline-Cq band). With faceting, ggplotly creates
+# one such trace per panel, so identify them by their trace properties rather
+# than by position.
+suppress_empty_filled_hover <- function(gp) {
+    for (i in seq_along(gp$x$data)) {
+        trace <- gp$x$data[[i]]
+        text <- trace$text
+        has_no_text <- is.null(text) ||
+            all(is.na(text) | !nzchar(as.character(text)))
+
+        if (identical(trace$fill, "toself") &&
+            identical(trace$mode, "lines") &&
+            has_no_text) {
+            gp$x$data[[i]]$hoverinfo <- "skip"
+        }
+    }
+
+    gp
+}

@@ -1299,6 +1299,7 @@ server <- function(input, output, session) {
         }
         
         ggplotly(p, tooltip = "text", source = "ct_plot") |>
+            suppress_empty_filled_hover() |>
             event_register("plotly_click") |>
             fix_plotly_legend()
     })
@@ -3511,4 +3512,3 @@ server <- function(input, output, session) {
 # Run App ======================================================================
 
 shinyApp(ui = ui, server = server)
-# TODO: remove hover on rectangle
