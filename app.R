@@ -75,48 +75,57 @@ ui <- page_fillable(
                         fill = TRUE, status = "primary",
                         value = FALSE
                     ),
-                    hr(),
-                    tags$h6(tags$strong("Samples")),
-                    helpText("Edit 'New Label' to rename samples. Drag the row number to reorder them. Uncheck 'Include' to exclude samples from analysis."),
-                    rHandsontableOutput("samples_tab"),
-                    hr(),
-                    tags$h6(tags$strong("Targets")),
-                    helpText("Edit 'New Label' to rename targets. Drag the row number to reorder them. Uncheck 'Include' to exclude targets from analysis."),
-                    rHandsontableOutput("targets_tab"),
-                    hr(),
-                    div(
-                        class = "d-flex align-items-end gap-2",
-                        numericInput(
-                            "max_cycle",
-                            label = "Undetected replacement cycle",
-                            value = 40,
-                            min = 1,
-                            step = 1,
-                            width = "220px"
-                        ),
-                        div(
-                            class = "pb-2",
-                            tooltip(
-                                bs_icon("info-circle"),
-                                tags$span(
-                                    "Replacing non-detects with a maximum-cycle value can produce biased estimates.",
-                                    tags$br(),
-                                    tags$strong("Reference: "),
-                                    "McCall, Matthew N et al. ‘On non-detects in qPCR data.’ ",
-                                    tags$em("Bioinformatics (Oxford, England)"),
-                                    " 30.16 (2014): 2310–2316. ",
-                                    tags$a(
-                                        "doi:10.1093/bioinformatics/btu239",
-                                        href = "https://doi.org/10.1093/bioinformatics/btu239",
-                                        target = "_blank",
-                                        rel = "noopener noreferrer"
-                                    )
-                                ),
-                                placement = "right"
-                            )
-                        )
+                    conditionalPanel(
+                        condition = "output.has_samples_table",
+                        hr(),
+                        tags$h6(tags$strong("Samples")),
+                        helpText("Edit 'New Label' to rename samples. Drag the row number to reorder them. Uncheck 'Include' to exclude samples from analysis."),
+                        rHandsontableOutput("samples_tab")
                     ),
-                    helpText("Undetected Cq values are replaced with this cycle.")
+                    conditionalPanel(
+                        condition = "output.has_targets_table",
+                        hr(),
+                        tags$h6(tags$strong("Targets")),
+                        helpText("Edit 'New Label' to rename targets. Drag the row number to reorder them. Uncheck 'Include' to exclude targets from analysis."),
+                        rHandsontableOutput("targets_tab")
+                    ),
+                    conditionalPanel(
+                        condition = "output.has_undetected_values",
+                        hr(),
+                        div(
+                            class = "d-flex align-items-end gap-2",
+                            numericInput(
+                                "max_cycle",
+                                label = "Undetected replacement cycle",
+                                value = 40,
+                                min = 1,
+                                step = 1,
+                                width = "220px"
+                            ),
+                            div(
+                                class = "pb-2",
+                                tooltip(
+                                    bs_icon("info-circle"),
+                                    tags$span(
+                                        "Replacing non-detects with a maximum-cycle value can produce biased estimates.",
+                                        tags$br(),
+                                        tags$strong("Reference: "),
+                                        "McCall, Matthew N et al. ‘On non-detects in qPCR data.’ ",
+                                        tags$em("Bioinformatics (Oxford, England)"),
+                                        " 30.16 (2014): 2310–2316. ",
+                                        tags$a(
+                                            "doi:10.1093/bioinformatics/btu239",
+                                            href = "https://doi.org/10.1093/bioinformatics/btu239",
+                                            target = "_blank",
+                                            rel = "noopener noreferrer"
+                                        )
+                                    ),
+                                    placement = "right"
+                                )
+                            )
+                        ),
+                        helpText("Undetected Cq values are replaced with this cycle.")
+                    ),
                 ),
                 
                 # Main content area
@@ -337,7 +346,7 @@ ui <- page_fillable(
                                 ANCOVA and mixed-effect models account directly for differences between biological replicates, so a prior ΔΔCq transformation is not required (ANCOVA-derived sample effect sizes correspond to ΔΔCq. See ",
                                 tooltip(
                                     tags$a(
-                                        "Yuan et al. (2006)",
+                                        "Yuan et al. 2006",
                                         href = "https://doi.org/10.1186/1471-2105-7-85",
                                         target = "_blank",
                                         rel = "noopener noreferrer"
@@ -367,9 +376,18 @@ ui <- page_fillable(
                                     placement = "right",
                                     options = list(customClass = "citation-tooltip")
                                 ),
-                                ").
-                                ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated sample).
-                                Mixed-effect Model is better when the reference sample is arbitrary across replicates (e.g., comparing expression between different patients or cell lines)."
+                                ").",
+                                tags$ul(
+                                    class = "mb-0",
+                                    tags$li(
+                                        tags$strong("ANCOVA"),
+                                        " is recommended when you have a clear reference/control sample (e.g., untreated sample)."
+                                    ),
+                                    tags$li(
+                                        tags$strong("Mixed-effect model"),
+                                        " is preferable when the reference sample is arbitrary across replicates (e.g., comparing expression between different patients or cell lines)."
+                                    )
+                                )
                             )
                         ),
 
@@ -383,7 +401,7 @@ ui <- page_fillable(
                                 "Perform statistical analysis in Cq space (-ΔCq or -ΔΔCq), and use 2^-ΔΔCq to visualize linear fold changes. See ",
                                 tooltip(
                                     tags$a(
-                                        "Taylor et al. (2019)",
+                                        "Taylor et al. 2019",
                                         href = "https://doi.org/10.1016/j.tibtech.2018.12.002",
                                         target = "_blank",
                                         rel = "noopener noreferrer"
@@ -842,6 +860,32 @@ server <- function(input, output, session) {
 
         cache$raw_data
     })
+
+    # Sidebar visibility follows the data-backed controls. Keep these outputs
+    # active while hidden so conditionalPanel can react immediately to edits.
+    has_samples_table <- reactive({
+        nrow(cache$samples_tab) > 0
+    })
+    output$has_samples_table <- reactive(has_samples_table())
+    outputOptions(output, "has_samples_table", suspendWhenHidden = FALSE)
+
+    has_targets_table <- reactive({
+        nrow(cache$targets_tab) > 0
+    })
+    output$has_targets_table <- reactive(has_targets_table())
+    outputOptions(output, "has_targets_table", suspendWhenHidden = FALSE)
+
+    has_undetected_values <- reactive({
+        raw_data <- current_raw_data()
+
+        if (is.null(raw_data) || !"Cq" %in% names(raw_data)) {
+            return(FALSE)
+        }
+
+        any(parse_Cq(raw_data$Cq)$Cq_censored, na.rm = TRUE)
+    })
+    output$has_undetected_values <- reactive(has_undetected_values())
+    outputOptions(output, "has_undetected_values", suspendWhenHidden = FALSE)
 
     # If pasted data exceed the configured max cycle, raise the replacement to the
     # first integer above the largest detected Cq.
