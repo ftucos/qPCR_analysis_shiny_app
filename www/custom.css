@@ -21,10 +21,15 @@
 /* Bootstrap tooltip box */
 /* TODO: do not affect plotly tooltip */
 .tooltip .tooltip-inner{
-	max-width: 380px;    
+	max-width: 250px;    
 	text-align: justify;
 	text-justify: inter-word;
 	white-space: normal; 
+}
+
+/* Wider tooltip for the qPCR statistical-analysis citation */
+.citation-tooltip .tooltip-inner {
+	max-width: 350px;
 }
 
 /* Remove bottom margin from stats comparison radio buttons */

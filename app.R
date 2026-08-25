@@ -333,8 +333,38 @@ ui <- page_fillable(
                                 class = "alert alert-warning py-1 px-2 mb-2",
                                 style = "font-size: 0.85em;",
                                 bs_icon("exclamation-triangle"),
-                                "It is recommended to perform statistical analysis on the log space (-ΔCq or -ΔΔCq) values rather than on exponentiated ones for more reliable results."
-                            )
+                                "It is recommended to perform statistical analysis on the log space (-ΔCq or -ΔΔCq) values rather than on exponentiated ones for more reliable results. See ",
+                                tooltip(
+                                    tags$a(
+                                        "Yuan et al. (2006)",
+                                        href = "https://doi.org/10.1186/1471-2105-7-85",
+                                        target = "_blank",
+                                        rel = "noopener noreferrer"
+                                    ),
+                                    tags$span(
+                                        tags$blockquote(
+                                            class = "blockquote mb-2",
+                                            style = "font-size: 0.9em;",
+                                            "\"Since Ct is the observed value from experimental procedures, it should be the subject of statistical analysis. The practice of performing statistical analysis at ratio directly is not appropriate. The presentation of data needs to refer to the ΔΔCt and subsequently the ratio and confidence intervals derived from 2^-ΔΔCt.\""
+                                        ),
+                                        tags$br(), tags$br(),
+                                        tags$strong("Reference: "),
+                                        "Yuan, J.S., et al. ‘Statistical analysis of real-time PCR data.’ ",
+                                        tags$em("BMC Bioinformatics"),
+                                        " 7, 85 (2006). ",
+                                        tags$a(
+                                            "doi:10.1186/1471-2105-7-85",
+                                            href = "https://doi.org/10.1186/1471-2105-7-85",
+                                            target = "_blank",
+                                            rel = "noopener noreferrer"
+                                        )
+                                    ),
+                                    placement = "right",
+                                    options = list(customClass = "citation-tooltip")
+                                ),
+                                ".",
+                            ),
+
                         ),
                         
                         # Omnibus test selection (choices update dynamically via pickerInput with optgroups)
