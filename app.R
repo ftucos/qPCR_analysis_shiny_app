@@ -2915,13 +2915,13 @@ server <- function(input, output, session) {
         req(input$out_metric)
         y_label <- case_match(
             input$out_metric,
-            "dCq" ~ "-ΔCq",
-            "exp_dCq" ~ "2^-ΔCq",
-            "ddCq" ~ "ΔΔCq",
-            "exp_ddCq" ~ "2^-ΔΔCq",
+            "dCq" ~ "log₂ relative normalized expression (-ΔCq)",
+            "exp_dCq" ~ "relative normalized expression (2^-ΔCq)",
+            "ddCq" ~ "log₂ fold change (-ΔΔCq)",
+            "exp_ddCq" ~ "fold change (2^-ΔΔCq)",
         )
         
-        paste(y_label, " Values for", input$select_out_target)
+        paste(input$select_out_target, " ", y_label)
     })
     
     # Shared Reactive: Plot data preparation (used by Results + Export) --------
@@ -2976,10 +2976,10 @@ server <- function(input, output, session) {
         
         y_label <- case_match(
             input$out_metric,
-            "dCq" ~ "-ΔCq",
-            "exp_dCq" ~ "2^-ΔCq",
-            "ddCq" ~ "-ΔΔCq",
-            "exp_ddCq" ~ "2^-ΔΔCq",
+            "dCq" ~ "Log₂ norm. expression (-ΔCq)",
+            "exp_dCq" ~ "Normalized expression (2^-ΔCq)",
+            "ddCq" ~ "Log₂ fold change (-ΔΔCq)",
+            "exp_ddCq" ~ "Fold change (2^-ΔΔCq)"
         )
         
         # Sign inversion for -dCq / -ddCq display
