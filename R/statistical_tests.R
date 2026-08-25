@@ -1031,8 +1031,8 @@ run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
     test_res <- test |>
         broom::tidy() |>
         mutate(Term = "Sample",
-               group1 = x$Sample[[1]],
-               group2 = x$Sample[[2]],
+               group1 = levels(x$Sample)[1],
+               group2 = levels(x$Sample)[2],
                ) |>
         add_signif(p.col = "p.value", output.col = "Significance") |>
         select(Term, group1, group2, `U-value` = statistic, `p-value` = p.value, Significance) |>
