@@ -100,7 +100,7 @@ ui <- page_fillable(
                                 bs_icon("info-circle"),
                                 tags$span(
                                     "Replacing non-detects with a maximum-cycle value can produce biased estimates.",
-                                    tags$br(), tags$br(),
+                                    tags$br(),
                                     tags$strong("Reference: "),
                                     "McCall, Matthew N et al. ‘On non-detects in qPCR data.’ ",
                                     tags$em("Bioinformatics (Oxford, England)"),
@@ -310,7 +310,7 @@ ui <- page_fillable(
                         condition = "output.n_bio_reps >= 2 && output.n_samples >= 2",
                         hr(),
                         tags$h6(tags$strong("Statistical Analysis")),
-                        
+
                         # Target metric for statistical testing
                         radioGroupButtons(
                             inputId   = "stats_metric",
@@ -325,15 +325,16 @@ ui <- page_fillable(
                             width     = "100%",
                             size      = "sm"
                         ),
-                        
-                        # Warning for exp data
+
+                        # Preferred analysis in Cq space.
                         conditionalPanel(
-                            condition = "input.stats_metric == 'exp_ddCq'",
+                            condition = "input.stats_metric == 'dCq'",
                             div(
-                                class = "alert alert-warning py-1 px-2 mb-2",
+                                class = "alert alert-success py-1 px-2 mb-2",
                                 style = "font-size: 0.85em;",
-                                bs_icon("exclamation-triangle"),
-                                "It is recommended to perform statistical analysis on the log space (-ΔCq or -ΔΔCq) values rather than on exponentiated ones for more reliable results. See ",
+                                bs_icon("lightbulb"),
+                                "The preferred approach is to perform statistical analysis in Cq space.
+                                ANCOVA and mixed-effect models account directly for differences between biological replicates, so a prior ΔΔCq transformation is not required (ANCOVA-derived sample effect sizes correspond to ΔΔCq. See ",
                                 tooltip(
                                     tags$a(
                                         "Yuan et al. (2006)",
@@ -345,9 +346,13 @@ ui <- page_fillable(
                                         tags$blockquote(
                                             class = "blockquote mb-2",
                                             style = "font-size: 0.9em;",
-                                            "\"Since Ct is the observed value from experimental procedures, it should be the subject of statistical analysis. The practice of performing statistical analysis at ratio directly is not appropriate. The presentation of data needs to refer to the ΔΔCt and subsequently the ratio and confidence intervals derived from 2^-ΔΔCt.\""
+                                            "\"Since Ct is the observed value from experimental procedures, it should be the subject of statistical analysis.\""
                                         ),
-                                        tags$br(), tags$br(),
+                                        tags$blockquote(
+                                            class = "blockquote mb-2",
+                                            style = "font-size: 0.9em;",
+                                            "\"An ANCOVA (analysis of covariance) model was proposed, and the ΔΔCt can be derived from analysis of effects of variables.\""
+                                        ),
                                         tags$strong("Reference: "),
                                         "Yuan, J.S., et al. ‘Statistical analysis of real-time PCR data.’ ",
                                         tags$em("BMC Bioinformatics"),
@@ -362,9 +367,64 @@ ui <- page_fillable(
                                     placement = "right",
                                     options = list(customClass = "citation-tooltip")
                                 ),
+                                ").
+                                ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated sample).
+                                Mixed-effect Model is better when the reference sample is arbitrary across replicates (e.g., comparing expression between different patients or cell lines)."
+                            )
+                        ),
+
+                        # Warning for exp data
+                        conditionalPanel(
+                            condition = "input.stats_metric == 'exp_ddCq'",
+                            div(
+                                class = "alert alert-warning py-1 px-2 mb-2",
+                                style = "font-size: 0.85em;",
+                                bs_icon("exclamation-triangle"),
+                                "Perform statistical analysis in Cq space (-ΔCq or -ΔΔCq), and use 2^-ΔΔCq to visualize linear fold changes. See ",
+                                tooltip(
+                                    tags$a(
+                                        "Taylor et al. (2019)",
+                                        href = "https://doi.org/10.1016/j.tibtech.2018.12.002",
+                                        target = "_blank",
+                                        rel = "noopener noreferrer"
+                                    ),
+                                    tags$span(
+                                        tags$blockquote(
+                                            class = "blockquote mb-2",
+                                            style = "font-size: 0.9em;",
+                                            "\"qPCR measurements are made on the log scale (Cq value) with statistical analysis performed in Cq space (i.e., ΔΔCq values or using log-transformed relative normalized expression [ΔCq]), while expression levels are reported after linear transformation of the ΔΔCq results.\""
+                                        ),
+                                        tags$strong("Reference: "),
+                                        "Taylor, S.C., et al. ‘The Ultimate qPCR Experiment: Producing Publication Quality, Reproducible Data the First Time.’ ",
+                                        tags$em("Trends in Biotechnology"),
+                                        " 37(7), 761–774 (2019). ",
+                                        tags$a(
+                                            "doi:10.1016/j.tibtech.2018.12.002",
+                                            href = "https://doi.org/10.1016/j.tibtech.2018.12.002",
+                                            target = "_blank",
+                                            rel = "noopener noreferrer"
+                                        )
+                                    ),
+                                    placement = "right",
+                                    options = list(customClass = "citation-tooltip")
+                                ),
                                 ".",
                             ),
 
+                        ),
+
+                        # Explain why pairwise Welch tests are the fallback for
+                        # reference-normalized metrics.
+                        conditionalPanel(
+                            condition = "input.stats_metric == 'ddCq' || input.stats_metric == 'exp_ddCq'",
+                            div(
+                                class = "alert alert-info py-1 px-2 mb-2",
+                                style = "font-size: 0.85em;",
+                                bs_icon("info-circle"),
+                                "When testing on -ΔΔCq or 2^-ΔΔCq, the reference sample has zero variance because all of its values are fixed at 0 or 1, respectively.
+                                Welch's ANOVA cannot accommodate a zero-variance group.
+                                Repeated Welch's t-tests can be used instead; each comparison against the reference reduces to a one-sample t-test against its fixed value."
+                            )
                         ),
                         
                         # Omnibus test selection (choices update dynamically via pickerInput with optgroups)
@@ -374,34 +434,10 @@ ui <- page_fillable(
                                 inputId   = "stats_test",
                                 label     = "Test:",
                                 choices   = NULL, # update dinamically
-                                width = "93%",
+                                width = "100%",
                                 options = pickerOptions(container = "body")
                             ),
-                            
-                            # Tip about test recomendations (shown for dCq with > 2 samples)
-                            conditionalPanel(
-                                condition = "input.stats_metric == 'dCq' && output.n_samples > 2",
-                                div(class = "ms-2",
-                                    tooltip(
-                                        bs_icon("lightbulb"),
-                                        "ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated sample).
-                                        Mixed-effect Model is better when the reference sample is arbitrary across replicates (e.g., comparing expression between different patients or cell lines).
-                                        Other tests are available for completeness but are generally not recommended.",
-                                        placement = "right"
-                                    )
-                                )
-                            ),
-                            # Tip about test recomendations (shown for dCq with exactly 2 samples)
-                            conditionalPanel(
-                                condition = "input.stats_metric == 'dCq' && output.n_samples == 2",
-                                div(class = "ms-2",
-                                    tooltip(
-                                        bs_icon("lightbulb"),
-                                        "ANCOVA is recommended when you have a clear reference/control sample (e.g., untreated vs treated). Paired t-test is better when the reference sample is arbitrary across replicates (e.g. comparing the expression between 2 different tumors or cell lines).",
-                                        placement = "right"
-                                    )
-                                )
-                            ),
+
                             # Warning for Paired t-test with 2 samples
                             conditionalPanel(
                                 condition = "input.stats_metric == 'dCq' && output.n_samples == 2 && input.stats_test == 'paired_ttest'",
@@ -433,9 +469,9 @@ ui <- page_fillable(
                                     condition = "input.stats_test == 'repeated_ttest' || input.stats_test == 'ttest'",
                                     tooltip(
                                         bs_icon("info-circle"),
-                                        "When enabled (Welch's t-test), 
-                                        the comparison against the reference sample converges to a one-sample t-test 
-                                        since the reference has zero variance in ΔΔCq.",
+                                        "Keeping this option enabled.
+                                        Welch’s t-test is more robust when sample variances differ and remains appropriate for comparisons against the reference sample (zero variance).
+                                        The option to disable it is provided for completeness but is generally not recommended.",
                                         placement = "right"
                                     )
                                 )
@@ -2516,10 +2552,10 @@ server <- function(input, output, session) {
             } else {
                 # ddCq or exp_ddCq: standard group comparisons
                 choices[["Parametric"]] <- c(
-                        "ANOVA" = "anova",
-                        "Repeated t-test" = "repeated_ttest"
+                        "Repeated t-test" = "repeated_ttest",
+                        "ANOVA" = "anova"
                     )
-                default <- "anova"
+                default <- "repeated_ttest"
             }
         } else {
             # = 2 samples
