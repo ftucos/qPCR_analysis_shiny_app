@@ -5,20 +5,20 @@
 
 build_results_plot <- function(plot_data, accent_color, secondary_color) {
     
-    df_target         <- plot_data$df_target
-    df_summary_target <- plot_data$df_summary
-    y_value           <- plot_data$y_value
-    y_label           <- plot_data$y_label
-    sign              <- plot_data$sign
-    y_summary_value   <- plot_data$y_summary_value
-    error_bar_high    <- plot_data$error_bar_high
-    error_bar_low     <- plot_data$error_bar_low
-    y_limits          <- plot_data$y_limits
-    y_min_label       <- plot_data$y_min_label
+    df_target          <- plot_data$df_target
+    df_summary_target  <- plot_data$df_summary
+    y_value            <- plot_data$y_value
+    y_label            <- plot_data$y_label
+    sign               <- plot_data$sign
+    y_summary_value    <- plot_data$y_summary_value
+    error_bar_high     <- plot_data$error_bar_high
+    error_bar_low      <- plot_data$error_bar_low
+    y_limits           <- plot_data$y_limits
+    y_min_label        <- plot_data$y_min_label
     undetected_present <- plot_data$undetected_present
-    error_bar_label   <- plot_data$error_bar_label
-    out_metric        <- plot_data$out_metric
-    stat_type         <- plot_data$stat_type
+    error_bar_label    <- plot_data$error_bar_label
+    out_metric         <- plot_data$out_metric
+    stat_type          <- plot_data$stat_type
     summarize_bio_reps <- plot_data$summarize_bio_reps
     y_axis_mode        <- plot_data$y_axis_mode %||% "auto"
     
@@ -170,19 +170,19 @@ build_export_plot <- function(plot_data, colors, lw, point_size, axis_text_size,
                               show_signif_bars, stats_result,
                               hide_ns, show_exact_pvalue) {
     
-    df_target         <- plot_data$df_target
-    df_summary_target <- plot_data$df_summary
-    y_value           <- plot_data$y_value
-    y_label           <- plot_data$y_label
-    sign              <- plot_data$sign
-    y_summary_value   <- plot_data$y_summary_value
-    error_bar_high    <- plot_data$error_bar_high
-    error_bar_low     <- plot_data$error_bar_low
-    y_limits          <- plot_data$y_limits
-    y_min_label       <- plot_data$y_min_label
+    df_target          <- plot_data$df_target
+    df_summary_target  <- plot_data$df_summary
+    y_value            <- plot_data$y_value
+    y_label            <- plot_data$y_label
+    sign               <- plot_data$sign
+    y_summary_value    <- plot_data$y_summary_value
+    error_bar_high     <- plot_data$error_bar_high
+    error_bar_low      <- plot_data$error_bar_low
+    y_limits           <- plot_data$y_limits
+    y_min_label        <- plot_data$y_min_label
     undetected_present <- plot_data$undetected_present
-    out_metric        <- plot_data$out_metric
-    stat_type         <- plot_data$stat_type
+    out_metric         <- plot_data$out_metric
+    stat_type          <- plot_data$stat_type
     summarize_bio_reps <- plot_data$summarize_bio_reps
     y_axis_mode        <- plot_data$y_axis_mode %||% "auto"
     
