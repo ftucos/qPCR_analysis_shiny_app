@@ -1,7 +1,8 @@
 # Generate the example dataset used by the app's "Load Example" button.
 #
-# The values are deterministic so changes to the example are reviewable. Each
-# Sample x Target x Replicate group contains three technical measurements.
+# Seeded noise keeps the values reproducible while avoiding perfectly parallel
+# condition profiles. Each Sample x Target x Replicate group contains three
+# technical measurements.
 
 samples <- c("Control", "Treatment_A", "Treatment_B", "Treatment_C")
 replicates <- paste0("R", 1:5)
@@ -30,6 +31,27 @@ example_data <- expand.grid(
     stringsAsFactors = FALSE
 )
 
+set.seed(20260827)
+
+# Independent biological-group noise prevents target and housekeeping effects
+# from cancelling exactly during normalization. Smaller well-level noise makes
+# technical replicates realistic without obscuring the example's main trends.
+biological_groups <- unique(
+    example_data[c("Sample", "Target", "Replicate")]
+)
+group_key <- function(sample, target, replicate) {
+    paste(sample, target, replicate, sep = "\r")
+}
+biological_noise <- setNames(
+    rnorm(nrow(biological_groups), mean = 0, sd = 0.18),
+    group_key(
+        biological_groups$Sample,
+        biological_groups$Target,
+        biological_groups$Replicate
+    )
+)
+technical_noise <- rnorm(nrow(example_data), mean = 0, sd = 0.04)
+
 sample_shift <- c(Control = 0, Treatment_A = 0.30,
                   Treatment_B = -0.20, Treatment_C = 0.15)
 replicate_shift <- c(R1 = -0.15, R2 = 0.10, R3 = -0.05,
@@ -51,16 +73,22 @@ target_dcq <- c(
     Target_AllAbsent = 11
 )
 
-numeric_cq <- mapply(function(sample, target, replicate, technical) {
+numeric_cq <- mapply(function(sample, target, replicate, technical, well_noise) {
     run_center <- 21 + sample_shift[[sample]] + replicate_shift[[replicate]]
-    tech_offset <- technical_deviation[[technical]]
+    tech_offset <- technical_deviation[[technical]] + well_noise
+    group_offset <- biological_noise[[group_key(sample, target, replicate)]]
 
-    if (target == "ACTB") return(run_center - 0.45 + tech_offset)
-    if (target == "TBP") return(run_center + 0.45 + tech_offset)
+    if (target == "ACTB") {
+        return(run_center - 0.45 + group_offset + tech_offset)
+    }
+    if (target == "TBP") {
+        return(run_center + 0.45 + group_offset + tech_offset)
+    }
 
     if (target == "Target_HighCq") {
         return(38.8 + sample_shift[[sample]] +
-                   biological_deviation[[replicate]] + tech_offset)
+                   biological_deviation[[replicate]] + group_offset +
+                   tech_offset)
     }
 
     dcq <- target_dcq[[target]]
@@ -71,9 +99,10 @@ numeric_cq <- mapply(function(sample, target, replicate, technical) {
                  Treatment_B = 6, Treatment_C = 5)[[sample]]
     }
 
-    run_center + dcq + biological_deviation[[replicate]] + tech_offset
+    run_center + dcq + biological_deviation[[replicate]] + group_offset +
+        tech_offset
 }, example_data$Sample, example_data$Target,
-   example_data$Replicate, example_data$Technical)
+   example_data$Replicate, example_data$Technical, technical_noise)
 
 example_data$Cq <- sprintf("%.2f", numeric_cq)
 
@@ -116,4 +145,3 @@ example_data$Cq[is_case("Target_HighCq", "Treatment_C", "R5", 3)] <- "40.40"
 example_data <- example_data[c("Sample", "Target", "Cq", "Replicate")]
 
 readr::write_csv(example_data, "data/example_qPCR_data.csv")
-
