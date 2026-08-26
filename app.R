@@ -627,6 +627,7 @@ ui <- page_fillable(
                             )
 
                         ),
+                        uiOutput("omnibus_posthoc_warning"),
                         uiOutput("all_undetected_comparison_warning"),
                         uiOutput("bio_rep_undetected_comparison_warning"),
                         # Method description
@@ -2964,6 +2965,23 @@ server <- function(input, output, session) {
                 ),
                 fontWeight = "bold"
             )
+    })
+
+    # A significant post-hoc comparison does not override a non-significant
+    # omnibus result; call out this discordance beside the comparison table.
+    output$omnibus_posthoc_warning <- renderUI({
+        result <- stats_result()
+        req(has_omnibus_posthoc_disagreement(result))
+
+        div(
+            class = "alert alert-warning py-2 px-3 m-2 d-flex align-items-start gap-2",
+            style = "font-size: 0.9em;",
+            bs_icon("exclamation-triangle"),
+            tags$span(
+                "The omnibus test was not significant.
+                Significant pairwise comparisons are therefore not protected by the omnibus test and should be interpreted with caution."
+            )
+        )
     })
     
     # Output: Method description -----------------------------------------------

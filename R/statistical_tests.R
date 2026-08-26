@@ -23,6 +23,40 @@ format_response <- function(response) {
     )
 }
 
+# Flag the uncommon case where a non-significant omnibus test is followed by
+# at least one significant post-hoc comparison. Prefer adjusted p-values when
+# both adjusted and unadjusted columns are present.
+has_omnibus_posthoc_disagreement <- function(stats_result, alpha = 0.05) {
+    if (!is.list(stats_result) || is.null(stats_result$omnibus_pvalue) ||
+        !is.data.frame(stats_result$test_res)) {
+        return(FALSE)
+    }
+
+    omnibus_p <- suppressWarnings(as.numeric(stats_result$omnibus_pvalue)[1])
+    if (!is.finite(omnibus_p) || omnibus_p <= alpha) {
+        return(FALSE)
+    }
+
+    result_columns <- names(stats_result$test_res)
+    normalized_columns <- tolower(result_columns)
+    adjusted_p_columns <- c("adj. p-value", "adj.p.value", "adjusted.p.value")
+    raw_p_columns <- c("p-value", "p.value")
+
+    # Never fall back to a raw p-value when an adjusted one is available.
+    p_value_index <- match(adjusted_p_columns, normalized_columns, nomatch = 0)
+    p_value_index <- p_value_index[p_value_index > 0][1]
+    if (is.na(p_value_index)) {
+        p_value_index <- match(raw_p_columns, normalized_columns, nomatch = 0)
+        p_value_index <- p_value_index[p_value_index > 0][1]
+    }
+    if (is.na(p_value_index)) {
+        return(FALSE)
+    }
+
+    posthoc_p <- suppressWarnings(as.numeric(stats_result$test_res[[p_value_index]]))
+    any(is.finite(posthoc_p) & posthoc_p <= alpha)
+}
+
 # Helper: split contrast column to group1 and group2 for ggpubr compatibility
 format_emmeans <- function(df, sample_sizes) {
     df |>
