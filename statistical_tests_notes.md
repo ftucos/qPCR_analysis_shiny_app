@@ -11,6 +11,9 @@ This app assumes that dCq tests operate on **non-independent (paired) data** (th
 - The **ANCOVA** uses the **reference sample's dCq** as a covariate to adjust for variability between runs. Its estimated sample effects correspond to $ΔΔCq$, allowing the model to derive the normalized effect directly ([Yuan et al., 2006](https://doi.org/10.1186/1471-2105-7-85)).
 - **Mixed Effect Models (MEM)** and **paired t-tests** correct for the average dCq value for each run. MEMs first correct for the average of each run and then performs pairwise comparisons on estimated marginal means. Repeated paired t-tests instead correct for the average dCq of each pair of comparison. A secondary difference is that repeated paired t-tests only use complete observations while MEMs can handle missing values. 
 
+> [!NOTE]
+> With a complete design, where every condition contains the same biological replicates, the ANCOVA adjusted mean differences numerically match the corresponding mean $ΔΔCq$ estimates. If one condition is missing one or more replicate observations, its mean reference-sample $ΔCq$ covariate is calculated from a different set of replicates. The ANCOVA then adjusts for this covariate imbalance, whereas the displayed mean $ΔΔCq$ remains the arithmetic mean of the available replicate-level differences. Small discrepancies between the two estimates are therefore expected in an incomplete design.
+
 ### ≥ 3 samples (parametric)
 
 | Test | Recommended | Omnibus | Post-hoc: Pairwise | Post-hoc: All vs Reference | Package::function (omnibus) | Package::function (post-hoc) | p-adjustment |
