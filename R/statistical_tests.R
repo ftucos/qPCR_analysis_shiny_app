@@ -1,12 +1,14 @@
 library(tidyverse)
 library(glue)
 library(lme4)
+library(effectsize)
 library(broom)
 library(lmerTest)
 library(emmeans)
 library(nlme)
 library(PMCMRplus)
 library(rstatix)
+
 
 # change defaults of add_signif to mark up to 3 stars
 add_signif <- partial(add_significance,
@@ -97,6 +99,22 @@ format_pairwise_test <- function(pairwise_result) {
         add_signif(p.col = "p-value", output.col = "Significance")
     }
 
+# Helper: format omega squared for ANOVA-family omnibus tables
+format_omega_squared <- function(model, partial = TRUE) {
+    effect_column <- if (partial) "Omega2_partial" else "Omega2"
+    effect_label <- if (partial) "Partial ω²" else "ω²"
+
+    effect_size <- effectsize::omega_squared(
+        model,
+        partial = partial,
+        ci = NULL
+    ) |>
+        as_tibble() |>
+        rename(Term = Parameter, !!effect_label := !!sym(effect_column)) |>
+        select(Term, all_of(effect_label))
+}
+
+
 # ANCOVA -----------------------------------------------------------------------
 # For dCq with biological replicates, adjusting for reference sample variance
 
@@ -117,6 +135,7 @@ run_ancova <- function(x,
     omnibus <- aov(test_formula, data = x)
     omnibus_method  <- "ANCOVA"
     omnibus_pvalue  <- summary(omnibus)[[1]]["Sample", "Pr(>F)"]
+    effect_size <- format_omega_squared(omnibus, partial = TRUE)
 
     omnibus_res <- broom::tidy(omnibus) |>
         rename(
@@ -127,6 +146,8 @@ run_ancova <- function(x,
             `F-value` = statistic,
             `p-value` = p.value
         ) |>
+        left_join(effect_size) |>
+        relocate("Partial ω²", .after = Term) |>
         mutate(Term = str_replace(Term, "ref_dCq", "Covariate (Reference dCq)"))
 
     omnibus_label <- glue(
@@ -136,7 +157,7 @@ run_ancova <- function(x,
         sample_f_value = round(omnibus_res$`F-value`[1], 2)
     )
 
-    # Post-hoc: estimated marginal means (equates avg. ddCq)
+    # Post-hoc: estimated marginal means
     emm <- emmeans(omnibus, ~Sample)
 
     if (comparison == "pairwise") {
@@ -198,7 +219,10 @@ run_ancova_2_sample <- function(x, response = c("dCq")) {
     test_formula <- dCq ~ Sample + ref_dCq
 
     test <- aov(test_formula, data = x)
-    # estimated marginal means (equates avg. ddCq)
+    # ancova sample size
+    effect_size <- format_omega_squared(test, partial = TRUE)
+
+    # estimated marginal means (effect size on the ddCq scale)
     emm <- emmeans(test, ~Sample) |>
         contrast(method = "pairwise") |>
         broom::tidy() |>
@@ -219,12 +243,15 @@ run_ancova_2_sample <- function(x, response = c("dCq")) {
             `F-value`  = statistic,
             `p-value`  = p.value
         ) |>
+        left_join(effect_size) |>
         mutate(Term = str_replace(Term, "ref_dCq", "Covariate (Reference dCq)"),
                group1 = ifelse(Term != "Residuals", levels(x$Sample)[1], NA),
                group2 = ifelse(Term != "Residuals", levels(x$Sample)[2], NA)) |>
+        left_join(sample_sizes |> rename("n1" = "n"), by = c("group1" = "Sample")) |>
+        left_join(sample_sizes |> rename("n2" = "n"), by = c("group2" = "Sample")) |>
         add_signif(p.col = "p-value", output.col = "Significance") |>
         left_join(emm) |>
-        relocate(c("group1", "group2", "n1", "n2", "Adjusted mean difference"), .after = Term)
+        relocate(c("group1", "group2", "n1", "n2", "Adjusted mean difference", "Partial ω²"), .after = Term)
     
     test_label <- "ANCOVA"
 
@@ -258,6 +285,7 @@ run_mixed_effect <- function(x,
         test_formula <- dCq ~ Sample + (1 | Replicate)
         omnibus <- lmerTest::lmer(test_formula, data = x)
         omnibus_method <- "Mixed-effect model"
+        effect_size <- format_omega_squared(omnibus, partial = TRUE)
 
         # Extract F-test for Sample fixed effect
         anova_res  <- anova(omnibus)
@@ -274,7 +302,9 @@ run_mixed_effect <- function(x,
                 `Denominator Df` = DenDF,
                 `F-value`        = statistic,
                 `p-value`        = p.value
-            )
+            ) |>
+            left_join(effect_size) |>
+            relocate("Partial ω²", .after = Term)
 
         omnibus_label <- glue(
             "Mixed-effect model: Sample F({numDf},{denDf}) = {sample_f}, p = {prettyNum(signif(omnibus_pvalue, 2))}",
@@ -313,6 +343,7 @@ run_mixed_effect <- function(x,
             data    = x
         )
         omnibus_method <- "Mixed-effect model (unequal variances)"
+        effect_size <- format_omega_squared(omnibus, partial = TRUE)
 
         # Extract F-test
         anova_res      <- anova(omnibus)
@@ -324,7 +355,9 @@ run_mixed_effect <- function(x,
             rename(
                 `Numerator Df`   = numDF,
                 `Denominator Df` = denDF
-            )
+            ) |>
+            left_join(effect_size) |>
+            relocate("Partial ω²", .after = Term)
 
         omnibus_label <- glue(
             "Mixed-effect model (unequal var): Sample F({numDf}, {denDf}) = {sample_f}, p = {prettyNum(signif(omnibus_pvalue, 2))}",
@@ -415,7 +448,9 @@ run_mixed_effect_2_sample <- function(x,
     test_formula <- dCq ~ Sample + (1 | Replicate)
     test <- lmerTest::lmer(test_formula, data = x)
     test_label <- "Mixed-effect model"
-    # estimated marginal means
+    effect_size <- format_omega_squared(test, partial = TRUE)
+
+    # estimated marginal means (effect size on the ddCq scale)
     emm <- emmeans(test, ~Sample) |>
         contrast(method = "pairwise") |>
         broom::tidy() |>
@@ -442,8 +477,9 @@ run_mixed_effect_2_sample <- function(x,
         `F-value`        = statistic,
         `p-value`        = p.value
       ) |>
+        left_join(effect_size) |>
         left_join(emm) |>
-        relocate(c("Adjusted mean difference"), .after = Term)
+        relocate(c("Adjusted mean difference", "Partial ω²"), .after = Term)
     
     rand_effect_res <- as.data.frame(VarCorr(test)) |>
       mutate(grp = str_replace(grp, "Replicate", "Replicate (Intercept)"),
@@ -463,6 +499,8 @@ run_mixed_effect_2_sample <- function(x,
       data    = x
     )
     test_label <- "Mixed-effect model (unequal variances)"
+    effect_size <- format_omega_squared(test, partial = TRUE)
+
     emm <- emmeans(test, ~Sample) |>
         contrast(method = "pairwise") |>
         broom::tidy() |>
@@ -482,8 +520,9 @@ run_mixed_effect_2_sample <- function(x,
         `Numerator Df`   = numDF,
         `Denominator Df` = denDF
       ) |>
+        left_join(effect_size) |>
         left_join(emm) |>
-        relocate("Adjusted mean difference", .after = Term)
+        relocate(c("Adjusted mean difference", "Partial ω²"), .after = Term)
     
     rand_effect_res <- VarCorr(test)[1:2, 1:2] |> 
       as.data.frame() |>
@@ -535,6 +574,7 @@ run_anova <- function(x,
     omnibus        <- aov(test_formula, data = x)
     omnibus_method <- "One-way ANOVA"
     omnibus_pvalue <- summary(omnibus)[[1]]["Sample", "Pr(>F)"]
+    effect_size <- format_omega_squared(omnibus, partial = FALSE)
 
     omnibus_res <- broom::tidy(omnibus) |>
         rename(
@@ -544,7 +584,9 @@ run_anova <- function(x,
             `Mean Sq`  = meansq,
             `F-value`  = statistic,
             `p-value`  = p.value
-        )
+        ) |>
+        left_join(effect_size) |>
+        relocate("ω²", .after = Term)
 
     omnibus_label <- glue(
         "One-way ANOVA: F({sample_df},{residuals_df}) = {sample_f_value}, p = {prettyNum(signif(omnibus_pvalue, 2))}",
@@ -640,7 +682,7 @@ run_kruskal <- function(x,
         chi_sq = round(omnibus_res$`Chi-sq`, 2),
         df     = omnibus_res$Df
     )
-    
+
     # Post-hoc: Dunn's test
     if (comparison == "pairwise") {
         post_hoc_adjustment <- p_adjust_method
@@ -661,18 +703,6 @@ run_kruskal <- function(x,
         )
         post_hoc_method <- "Dunn's test (single-step adjusted)"
     }
-    
-    post_hoc_estimate <- rstatix::dunn_test(data = x,
-                                             test_formula,
-                                             detailed = T) |>
-        select(group1, group2, n1, n2, estimate)
-    # cover also opposite direction comparisons to ensure match with PMCMR ones
-    post_hoc_estimate <- rbind(
-        post_hoc_estimate,
-        post_hoc_estimate |> 
-            rename("group1" = "group2", "group2" = "group1", "n1" = "n2", "n2" = "n1") |>
-            mutate(estimate = -estimate)
-    )
 
     post_hoc_res <- post_hoc |>
         format_pmcmr(sample_sizes = sample_sizes) |>
@@ -681,8 +711,7 @@ run_kruskal <- function(x,
         rename(
             `z-value` = statistic,
         ) |>
-        left_join(post_hoc_estimate) |>
-        select(Term, group1, group2, n1, n2, `Difference in mean ranks` = estimate, `z-value`, p.value, Significance)
+        select(Term, group1, group2, n1, n2, `z-value`, p.value, Significance)
     
     
     if (post_hoc_adjustment != "none") {
@@ -731,19 +760,18 @@ run_repeated_ttest <- function(x,
     }
         
     test <- rstatix::pairwise_t_test(
-        data        = x,
-        formula     = test_formula,
-        var.equal   = equal.var,
-        ref.group   = reference_sample,
-        pool.sd     = FALSE, # when pooling SD it becomes a Fisher's LSD test
+        data      = x,
+        formula   = test_formula,
+        var.equal = equal.var,
+        ref.group = reference_sample,
+        pool.sd   = FALSE, # when pooling SD it becomes a Fisher's LSD test
         p.adjust.method = p_adjust_method,
-        error.as.na = T,
-        detailed    = T
+        error.as.na = T
     )
     
     test_res <- test |>
         mutate(Term = "Sample") |>
-        select(Term, group1, group2, n1, n2, `Mean difference` = estimate, Df = df, `t-value` = statistic,
+        select(Term, group1, group2, n1, n2, Df = df, `t-value` = statistic,
                `p-value` = p, `Adj. p-value` = p.adj) |>
         add_signif(p.col = "Adj. p-value", output.col = "Significance")
         
@@ -793,13 +821,23 @@ run_ttest <- function(x,
         data = x,
         formula = test_formula,
         var.equal = equal.var,
-        error.as.na = T,
-        detailed = TRUE
+        detailed = T
     )
     
+    # TODO: two sample hudges/cohen effect size leads to different results from the one sample counterpart
+    # what version shall implement especially for pairwise tests?
+    effect_size <- rstatix::cohens_d(
+        data      = x,
+        formula   = test_formula,
+        var.equal = equal.var,
+        hedges.correction = T
+    ) |>
+        select(-magnitude)
+    
     test_res <- test |>
-        mutate(Term = "Sample") |>
-        select(Term, group1, group2, n1, n2, `Mean difference` = estimate, Df = df, `t-value` = statistic,
+        mutate(Term = "Sample",
+               hedges_g = effect_size$effsize) |>
+        select(Term, group1, group2, n1, n2, hedges_g, Df = df, `t-value` = statistic,
                `p-value` = p) |>
         add_signif(p.col = "p-value", output.col = "Significance")
         
@@ -846,13 +884,12 @@ run_repeated_paired_ttest <- function(x,
         ref.group = reference_sample,
         paired    = T,
         p.adjust.method = p_adjust_method,
-        error.as.na = T,
-        detailed  = T
+        error.as.na = T
     )
     
     test_res <- test |>
         mutate(Term = "Sample") |>
-        select(Term, group1, group2, n1, n2, `Mean difference` = estimate, Df = df, `t-value` = statistic,
+        select(Term, group1, group2, n1, n2, Df = df, `t-value` = statistic,
                `p-value` = p, `Adj. p-value` = p.adj) |>
         add_signif(p.col = "Adj. p-value", output.col = "Significance")
         
@@ -893,18 +930,17 @@ run_paired_ttest <- function(x,
     response   <- match.arg(response)
     test_formula <- reformulate("Sample", response = response)
     
+    
     test <- rstatix::t_test(
-        data        = x,
-        id          = "Replicate",
-        formula     = test_formula,
-        paired      = T,
-        error.as.na = T,
-        detailed    = T
+        data      = x,
+        id        = "Replicate",
+        formula   = test_formula,
+        paired    = T,
     )
     
     test_res <- test |>
         mutate(Term = "Sample") |>
-        select(Term, group1, group2, n1, n2, `Mean difference` = estimate, Df = df, `t-value` = statistic,
+        select(Term, group1, group2, n1, n2, Df = df, `t-value` = statistic,
                `p-value` = p) |>
         add_signif(p.col = "p-value", output.col = "Significance")
         
@@ -946,13 +982,12 @@ run_repeated_wilcoxon <- function(x,
         ref.group = reference_sample,
         paired    = T,
         p.adjust.method = p_adjust_method,
-        error.as.na = T,
-        detailed  = T
+        error.as.na = T
     )
     
     test_res <- test |>
         mutate(Term = "Sample") |>
-        select(Term, group1, group2, n1, n2, `Hodges–Lehmann estimate` = estimate, `V-value` = statistic,
+        select(Term, group1, group2, n1, n2, `V-value` = statistic,
                `p-value` = p, `Adj. p-value` = p.adj) |>
         add_signif(p.col = "Adj. p-value", output.col = "Significance")
         
@@ -996,13 +1031,11 @@ run_wilcoxon <- function(x, response = c("dCq")) {
         id        = "Replicate",
         formula   = test_formula,
         paired    = T,
-        error.as.na = T,
-        detailed  = T
     )
     
     test_res <- test |>
         mutate(Term = "Sample") |>
-        select(Term, group1, group2, n1, n2, `Hodges–Lehmann estimate` = estimate, `V-value` = statistic,
+        select(Term, group1, group2, n1, n2, `V-value` = statistic,
                `p-value` = p) |>
         add_signif(p.col = "p-value", output.col = "Significance")
         
@@ -1056,7 +1089,7 @@ run_repeated_mann_whitney <- function(x,
     test_res <- map(comparisons_list, function(sample_pair) {
         subset_data <- x |> filter(Sample %in% sample_pair)
         
-        wilcox.test(test_formula, data = subset_data, conf.int = T) |>
+        wilcox.test(test_formula, data = subset_data) |>
             broom::tidy() |>
             mutate(Term = "Sample",
                    group1 = sample_pair[[1]],
@@ -1064,7 +1097,7 @@ run_repeated_mann_whitney <- function(x,
                    method = str_extract(method, "(exact|with continuity correction)") |>
                                         str_to_sentence()
             ) |>
-            select(Term, group1, group2, `Hodges–Lehmann estimate` = estimate, `U-value` = statistic, `p-value` = p.value, Details = method)
+            select(Term, group1, group2, `U-value` = statistic, `p-value` = p.value, Details = method)
     }) |>
         bind_rows() |>
         left_join(sample_sizes |> rename("n1" = "n"), by = c("group1" = "Sample")) |>
@@ -1118,7 +1151,7 @@ run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
     test_formula <- reformulate("Sample", response = response)
     
     # use stats::wilcox.test in place of rstatix::wilcox_test because it fails when 
-    test <- wilcox.test(formula = test_formula, data = x, conf.int = T)
+    test <- wilcox.test(formula = test_formula, data = x)
     
     test_res <- test |>
         broom::tidy() |>
@@ -1127,7 +1160,7 @@ run_mann_whitney <- function(x, response = c("ddCq", "exp_ddCq")) {
                group2 = levels(x$Sample)[2],
                ) |>
         add_signif(p.col = "p.value", output.col = "Significance") |>
-        select(Term, group1, group2, `Hodges–Lehmann estimate` = estimate, `U-value` = statistic, `p-value` = p.value, Significance) |>
+        select(Term, group1, group2, `U-value` = statistic, `p-value` = p.value, Significance) |>
         left_join(sample_sizes |> rename("n1" = "n"), by = c("group1" = "Sample")) |>
         left_join(sample_sizes |> rename("n2" = "n"), by = c("group2" = "Sample")) |>
         relocate(c("n1", "n2"), .after = "group2")
